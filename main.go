@@ -3,9 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"net"
-	"net/netip"
-	"os"
 
 	"github.com/robinbraemer/event"
 	"go.minekube.com/brigodier"
@@ -20,34 +17,28 @@ func main() {
 	proxy.Plugins = append(proxy.Plugins, proxy.Plugin{
 		Name: "SimpleProxy",
 		Init: func(ctx context.Context, proxy *proxy.Proxy) error {
-			return newSimpleProxy(proxy).init()
+			return csmcProxy(proxy).init()
 		},
 	})
 
 	gate.Execute()
 }
 
-type SimpleProxy struct {
+type CSMCProxy struct {
 	*proxy.Proxy
 }
 
-func newSimpleProxy(proxy *proxy.Proxy) *SimpleProxy {
-	return &SimpleProxy{
-		Proxy: proxy,
-	}
+func csmcProxy(proxy *proxy.Proxy) *CSMCProxy {
+	return &CSMCProxy{Proxy: proxy}
 }
 
-func (p *SimpleProxy) init() error {
-	p.registerCommands()
-	p.registerSubscribers()
+func (p *CSMCProxy) init() error {
+	// host := os.Getenv("GAME_SERVER_SERVICE_HOST")
+	// p.Register(proxy.NewServerInfo("lobby", net.TCPAddrFromAddrPort(netip.MustParseAddrPort(host+":25565"))))
 
-	host := os.Getenv("GAME_SERVER_SERVICE_HOST")
-	p.Register(proxy.NewServerInfo("lobby", net.TCPAddrFromAddrPort(netip.MustParseAddrPort(host+":25565"))))
+	// TODO: Connect to NATS
+	// TODO: Listen to NATS events and register + unregister servers
 
-	return nil
-}
-
-func (p *SimpleProxy) registerCommands() {
 	p.Command().Register(brigodier.Literal("ping").
 		Executes(command.Command(func(c *command.Context) error {
 			player, ok := c.Source.(proxy.Player)
@@ -61,63 +52,38 @@ func (p *SimpleProxy) registerCommands() {
 			})
 		})),
 	)
-}
 
-func (p *SimpleProxy) registerSubscribers() {
 	event.Subscribe(p.Event(), 0, p.onServerSwitch)
 	event.Subscribe(p.Event(), 0, p.onChooseServer)
 	event.Subscribe(p.Event(), 0, pingHandler())
+
+	return nil
 }
 
-func (p *SimpleProxy) onChooseServer(e *proxy.PlayerChooseInitialServerEvent) {
-	e.SetInitialServer(p.Server("lobby"))
+func (p *CSMCProxy) onChooseServer(e *proxy.PlayerChooseInitialServerEvent) {
+	// e.SetInitialServer(p.Server("lobby"))
 }
 
-func (p *SimpleProxy) onServerSwitch(e *proxy.ServerPostConnectEvent) {
-	newServer := e.Player().CurrentServer()
-	if newServer == nil {
+func (p *CSMCProxy) onServerSwitch(e *proxy.ServerPostConnectEvent) {
+	s := e.Player().CurrentServer()
+	if s == nil {
 		return
 	}
 
 	_ = e.Player().SendMessage(&Text{
 		S: Style{Color: color.Aqua},
 		Extra: []Component{
-			&Text{
-				Content: "\nWelcome to the Gate Sample proxy!\n\n",
-				S:       Style{Color: color.Green, Bold: True},
-			},
+			&Text{Content: "\nWelcome to CSMC!!\n\n", S: Style{Color: color.Green, Bold: True}},
 			&Text{Content: "You connected to "},
-			&Text{Content: newServer.Server().ServerInfo().Name(), S: Style{Color: color.Yellow}},
+			&Text{Content: s.Server().ServerInfo().Name(), S: Style{Color: color.Yellow}},
 			&Text{Content: "."},
-			&Text{
-				S: Style{
-					ClickEvent: SuggestCommand("/broadcast Gate is awesome!"),
-					HoverEvent: ShowText(&Text{Content: "/broadcast Gate is awesome!"}),
-				},
-				Content: "\n\nClick me to run ",
-				Extra: []Component{&Text{
-					Content: "/broadcast Gate is awesome!",
-					S:       Style{Color: color.White, Bold: True, Italic: True},
-				}},
-			},
-			&Text{
-				Content: "\n\nClick me to run sample /title command!",
-				S: Style{
-					HoverEvent: ShowText(&Text{Content: "/title <title> [subtitle]"}),
-					ClickEvent: SuggestCommand(`/title "&eGate greets" &2&o` + e.Player().Username()),
-				},
-			},
-			&Text{Content: "\n\nMore sample commands you can try: "},
-			&Text{
-				Content: "/ping",
-				S:       Style{Color: color.Yellow},
-			},
 		},
 	})
 }
 
 func pingHandler() func(p *proxy.PingEvent) {
-	motd := &Text{Content: "Simple Proxy!\nJoin and test me."}
+	motd := &Text{Content: "Community Sourced Minecraft Server", S: Style{Color: color.Green, Bold: True}}
+
 	return func(e *proxy.PingEvent) {
 		p := e.Ping()
 		p.Description = motd
