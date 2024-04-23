@@ -3,6 +3,9 @@ package main
 import (
 	"context"
 	"fmt"
+	"net"
+	"net/netip"
+	"os"
 
 	"github.com/robinbraemer/event"
 	"go.minekube.com/brigodier"
@@ -38,6 +41,9 @@ func (p *SimpleProxy) init() error {
 	p.registerCommands()
 	p.registerSubscribers()
 
+	host := os.Getenv("GAME_SERVER_SERVICE_HOST")
+	p.Register(proxy.NewServerInfo("lobby", net.TCPAddrFromAddrPort(netip.MustParseAddrPort(host+":25565"))))
+
 	return nil
 }
 
@@ -59,7 +65,12 @@ func (p *SimpleProxy) registerCommands() {
 
 func (p *SimpleProxy) registerSubscribers() {
 	event.Subscribe(p.Event(), 0, p.onServerSwitch)
+	event.Subscribe(p.Event(), 0, p.onChooseServer)
 	event.Subscribe(p.Event(), 0, pingHandler())
+}
+
+func (p *SimpleProxy) onChooseServer(e *proxy.PlayerChooseInitialServerEvent) {
+	e.SetInitialServer(p.Server("lobby"))
 }
 
 func (p *SimpleProxy) onServerSwitch(e *proxy.ServerPostConnectEvent) {
