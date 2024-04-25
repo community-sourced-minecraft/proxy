@@ -19,7 +19,6 @@ var Plugin = proxy.Plugin{
 }
 
 func onPingEvent() func(e *proxy.PingEvent) {
-
 	return func(e *proxy.PingEvent) {
 		p := e.Ping()
 		p.Description = &Text{
