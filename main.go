@@ -1,92 +1,21 @@
 package main
 
 import (
-	"context"
-	"fmt"
-
-	"github.com/robinbraemer/event"
-	"go.minekube.com/brigodier"
-	"go.minekube.com/common/minecraft/color"
-	. "go.minekube.com/common/minecraft/component"
+	"github.com/Community-Sourced-Minecraft/Gate-Proxy/plugins/core"
+	"github.com/Community-Sourced-Minecraft/Gate-Proxy/plugins/motd"
+	"github.com/Community-Sourced-Minecraft/Gate-Proxy/plugins/tab"
+	"github.com/Community-Sourced-Minecraft/Gate-Proxy/plugins/whitelist"
 	"go.minekube.com/gate/cmd/gate"
-	"go.minekube.com/gate/pkg/command"
 	"go.minekube.com/gate/pkg/edition/java/proxy"
 )
 
 func main() {
-	proxy.Plugins = append(proxy.Plugins, proxy.Plugin{
-		Name: "SimpleProxy",
-		Init: func(ctx context.Context, proxy *proxy.Proxy) error {
-			return csmcProxy(proxy).init()
-		},
-	})
-
-	gate.Execute()
-}
-
-type CSMCProxy struct {
-	*proxy.Proxy
-}
-
-func csmcProxy(proxy *proxy.Proxy) *CSMCProxy {
-	return &CSMCProxy{Proxy: proxy}
-}
-
-func (p *CSMCProxy) init() error {
-	// host := os.Getenv("GAME_SERVER_SERVICE_HOST")
-	// p.Register(proxy.NewServerInfo("lobby", net.TCPAddrFromAddrPort(netip.MustParseAddrPort(host+":25565"))))
-
-	// TODO: Connect to NATS
-	// TODO: Listen to NATS events and register + unregister servers
-
-	p.Command().Register(brigodier.Literal("ping").
-		Executes(command.Command(func(c *command.Context) error {
-			player, ok := c.Source.(proxy.Player)
-			if !ok {
-				return c.Source.SendMessage(&Text{Content: "Pong!"})
-			}
-
-			return player.SendMessage(&Text{
-				Content: fmt.Sprintf("Pong! Your ping is %s", player.Ping()),
-				S:       Style{Color: color.Green},
-			})
-		})),
+	proxy.Plugins = append(proxy.Plugins,
+		tab.Plugin,
+		motd.Plugin,
+		core.Plugin,
+		whitelist.Plugin,
 	)
 
-	event.Subscribe(p.Event(), 0, p.onServerSwitch)
-	event.Subscribe(p.Event(), 0, p.onChooseServer)
-	event.Subscribe(p.Event(), 0, pingHandler())
-
-	return nil
-}
-
-func (p *CSMCProxy) onChooseServer(e *proxy.PlayerChooseInitialServerEvent) {
-	// e.SetInitialServer(p.Server("lobby"))
-}
-
-func (p *CSMCProxy) onServerSwitch(e *proxy.ServerPostConnectEvent) {
-	s := e.Player().CurrentServer()
-	if s == nil {
-		return
-	}
-
-	_ = e.Player().SendMessage(&Text{
-		S: Style{Color: color.Aqua},
-		Extra: []Component{
-			&Text{Content: "\nWelcome to CSMC!!\n\n", S: Style{Color: color.Green, Bold: True}},
-			&Text{Content: "You connected to "},
-			&Text{Content: s.Server().ServerInfo().Name(), S: Style{Color: color.Yellow}},
-			&Text{Content: "."},
-		},
-	})
-}
-
-func pingHandler() func(p *proxy.PingEvent) {
-	motd := &Text{Content: "Community Sourced Minecraft Server", S: Style{Color: color.Green, Bold: True}}
-
-	return func(e *proxy.PingEvent) {
-		p := e.Ping()
-		p.Description = motd
-		p.Players.Max = p.Players.Online + 1
-	}
+	gate.Execute()
 }
