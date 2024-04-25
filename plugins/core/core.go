@@ -57,6 +57,12 @@ func (p *CorePlugin) registerPodByName(gamemodeName, podName string) error {
 		return err
 	}
 
+	if s := p.Server(podName); s != nil {
+		if p.Unregister(s.ServerInfo()) {
+			log.Printf("Unregistered server %s", podName)
+		}
+	}
+
 	_, err = p.Register(proxy.NewServerInfo(podName, ip))
 
 	return err
