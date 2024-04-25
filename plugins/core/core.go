@@ -3,7 +3,12 @@ package core
 import (
 	"context"
 	"fmt"
+	"log"
+	"net"
+	"os"
 
+	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
 	"github.com/robinbraemer/event"
 	"go.minekube.com/brigodier"
 	"go.minekube.com/common/minecraft/color"
@@ -12,28 +17,103 @@ import (
 	"go.minekube.com/gate/pkg/edition/java/proxy"
 )
 
-var Plugin = proxy.Plugin{
-	Name: "Core",
-	Init: func(ctx context.Context, proxy *proxy.Proxy) error {
-		csmcProxy(proxy).init()
-		return nil
-	},
+type PodInfo struct {
+	Network      string
+	PodName      string
+	PodNamespace string
 }
 
-type CSMCProxy struct {
+func (p PodInfo) DebugString() string {
+	return fmt.Sprintf("PodInfo{Network: %s, PodName: %s, PodNamespace: %s}", p.Network, p.PodName, p.PodNamespace)
+}
+
+type CorePlugin struct {
 	*proxy.Proxy
+	NATS      *nats.Conn
+	JetStream jetstream.JetStream
+	Info      PodInfo
 }
 
-func csmcProxy(proxy *proxy.Proxy) *CSMCProxy {
-	return &CSMCProxy{Proxy: proxy}
+func New(nc *nats.Conn, js jetstream.JetStream) (proxy.Plugin, error) {
+	info := PodInfo{
+		Network:      os.Getenv("CSMC_NETWORK"),
+		PodName:      os.Getenv("POD_NAME"),
+		PodNamespace: os.Getenv("POD_NAMESPACE"),
+	}
+
+	return proxy.Plugin{
+		Name: "Core",
+		Init: func(ctx context.Context, prx *proxy.Proxy) error {
+			p := &CorePlugin{Proxy: prx, NATS: nc, JetStream: js, Info: info}
+
+			return p.Init(ctx)
+		},
+	}, nil
 }
 
-func (p *CSMCProxy) init() error {
-	// host := os.Getenv("GAME_SERVER_SERVICE_HOST")
-	// p.Register(proxy.NewServerInfo("lobby", net.TCPAddrFromAddrPort(netip.MustParseAddrPort(host+":25565"))))
+func (p *CorePlugin) registerPodByName(gamemodeName, podName string) error {
+	ip, err := net.ResolveTCPAddr("tcp4", podName+"."+gamemodeName+"."+p.Info.PodNamespace+".svc.cluster.local:25565")
+	if err != nil {
+		return err
+	}
 
-	// TODO: Connect to NATS
-	// TODO: Listen to NATS events and register + unregister servers
+	_, err = p.Register(proxy.NewServerInfo(podName, ip))
+
+	return err
+}
+
+func (p *CorePlugin) Init(ctx context.Context) error {
+	gamemodesKVBucket := "csmc_" + p.Info.PodNamespace + "_" + p.Info.Network + "_gamemodes"
+	log.Printf("Connecting to %s", gamemodesKVBucket)
+	gamemodesKV, err := p.JetStream.KeyValue(ctx, gamemodesKVBucket)
+	if err != nil {
+		return err
+	}
+	log.Printf("Connected to %s", gamemodesKVBucket)
+
+	go func() {
+		watcher, err := gamemodesKV.WatchAll(ctx)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		for key := range watcher.Updates() {
+			if key == nil {
+				log.Println("Replayed keys for all gamemodes")
+				continue
+			}
+
+			gamemodeName := key.Key()
+
+			log.Printf("Gamemode %s added", gamemodeName)
+			gamemodeInstancesKV, err := p.JetStream.KeyValue(ctx, "csmc_"+p.Info.PodNamespace+"_"+p.Info.Network+"_gamemode_"+gamemodeName+"_instances")
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			go func() {
+				watcher, err := gamemodeInstancesKV.WatchAll(ctx)
+				if err != nil {
+					log.Fatal(err)
+				}
+
+				for key := range watcher.Updates() {
+					if key == nil {
+						log.Printf("Replayed keys for all instances of gamemode %s", gamemodeName)
+						continue
+					}
+
+					podName := key.Key()
+
+					log.Printf("Pod %s added to gamemode %s", podName, gamemodeName)
+
+					if err := p.registerPodByName(gamemodeName, podName); err != nil {
+						log.Fatal(err)
+					}
+				}
+			}()
+		}
+	}()
 
 	p.Command().Register(brigodier.Literal("ping").
 		Executes(command.Command(func(c *command.Context) error {
@@ -55,11 +135,12 @@ func (p *CSMCProxy) init() error {
 	return nil
 }
 
-func (p *CSMCProxy) onChooseServer(e *proxy.PlayerChooseInitialServerEvent) {
-	// e.SetInitialServer(p.Server("lobby"))
+func (p *CorePlugin) onChooseServer(e *proxy.PlayerChooseInitialServerEvent) {
+	// TODO: Get initial server from NATS
+	e.SetInitialServer(p.Server("lobby-0"))
 }
 
-func (p *CSMCProxy) onServerSwitch(e *proxy.ServerPostConnectEvent) {
+func (p *CorePlugin) onServerSwitch(e *proxy.ServerPostConnectEvent) {
 	s := e.Player().CurrentServer()
 	if s == nil {
 		return
