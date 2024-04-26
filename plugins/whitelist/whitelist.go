@@ -1,236 +1,131 @@
 package whitelist
 
 import (
-	"bytes"
-	"context"
 	"encoding/json"
-	"fmt"
 	"os"
 	"slices"
-	"strings"
-
-	"github.com/Community-Sourced-Minecraft/Gate-Proxy/lib/util/uuid"
-	"github.com/robinbraemer/event"
-	"go.minekube.com/brigodier"
-	"go.minekube.com/common/minecraft/color"
-	"go.minekube.com/common/minecraft/component"
-	"go.minekube.com/gate/pkg/command"
-	"go.minekube.com/gate/pkg/edition/java/proxy"
+	"sync"
 )
 
-// TODO: Refactor to custom plugin struct
-var whitelist WhitelistFile
-var Plugin = proxy.Plugin{
-	Name: "Whitelist",
-	Init: func(ctx context.Context, p *proxy.Proxy) error {
-		if err := ReloadWhitelist(); err != nil {
-			return err
-		}
-
-		event.Subscribe(p.Event(), 0, func(e *proxy.ServerPostConnectEvent) {
-			uuid := e.Player().GameProfile().ID
-			if !slices.Contains(whitelist.Whitelisted, strings.Replace(uuid.String(), "-", "", -1)) && whitelist.Enabled {
-				e.Player().Disconnect(&component.Text{
-					Content: "You are not whitelisted!",
-					S:       component.Style{Color: color.Red},
-				})
-			}
-		})
-
-		p.Command().Register(whitelistCommand())
-
-		return nil
-	},
+type WhitelistFile struct {
+	Enabled     bool     `json:"enabled"`
+	Whitelisted []string `json:"whitelisted"`
 }
 
-func whitelistCommand() brigodier.LiteralNodeBuilder {
-	whitelistAddCommand := command.Command(func(c *command.Context) error {
-		uuid, err := uuid.UsernameToUUID(c.Arguments["user"].Result.(string))
-		if err != nil {
-			return UsageWhitelist().Run(c.CommandContext)
-		}
-
-		res, err := os.OpenFile("whitelist.json", os.O_RDWR|os.O_TRUNC, 0755)
-		if err != nil {
-			return c.SendMessage(&component.Text{
-				Content: "Error while reading whitelist.json",
-			})
-		}
-		defer res.Close()
-
-		if slices.Contains(whitelist.Whitelisted, uuid) {
-			return c.SendMessage(&component.Text{
-				Content: c.Arguments["user"].Result.(string) + " is already on whitelist!",
-				S:       component.Style{Color: color.Red},
-			})
-		}
-
-		whitelist.Whitelisted = append(whitelist.Whitelisted, uuid)
-
-		if err := json.NewEncoder(res).Encode(whitelist); err != nil {
-			return err
-		}
-
-		if err := ReloadWhitelist(); err != nil {
-			return err
-		}
-
-		return c.SendMessage(&component.Text{Content: "Added " + c.Arguments["user"].Result.(string) + " to whitelist!", S: component.Style{Color: color.Green}})
-	})
-
-	whitelistRemoveCommand := command.Command(func(c *command.Context) error {
-		uuid, err := uuid.UsernameToUUID(c.Arguments["user"].Result.(string))
-		if err != nil {
-			return UsageWhitelist().Run(c.CommandContext)
-		}
-
-		res, err := os.OpenFile("whitelist.json", os.O_RDWR|os.O_TRUNC, 0755)
-		if err != nil {
-			return c.SendMessage(&component.Text{
-				Content: "Error while reading whitelist.json",
-			})
-		}
-		defer res.Close()
-
-		// TODO: Anna will fix that shit
-
-		var newWhitelisted []string
-
-		for id := range whitelist.Whitelisted {
-			if whitelist.Whitelisted[id] != uuid {
-				newWhitelisted = append(newWhitelisted, whitelist.Whitelisted[id])
-			}
-		}
-
-		whitelist.Whitelisted = newWhitelisted
-
-		if err := json.NewEncoder(res).Encode(whitelist); err != nil {
-			return err
-		}
-
-		if err := ReloadWhitelist(); err != nil {
-			return err
-		}
-
-		return c.SendMessage(&component.Text{Content: "Removed " + c.Arguments["user"].Result.(string) + " from whitelist!", S: component.Style{Color: color.Green}})
-	})
-
-	EnableWhitelistCommand := command.Command(func(c *command.Context) error {
-		if whitelist.Enabled {
-			return c.SendMessage(&component.Text{
-				Content: "Whitelist already on",
-				S:       component.Style{Color: color.Red},
-			})
-		}
-		res, err := os.OpenFile("whitelist.json", os.O_RDWR|os.O_TRUNC, 0755)
-		if err != nil {
-			return c.SendMessage(&component.Text{
-				Content: "Error while reading whitelist.json",
-			})
-		}
-		defer res.Close()
-
-		whitelist.Enabled = true
-
-		if err := json.NewEncoder(res).Encode(whitelist); err != nil {
-			return err
-		}
-
-		if err := ReloadWhitelist(); err != nil {
-			return err
-		}
-
-		return c.SendMessage(&component.Text{Content: "Enabled whitelist!", S: component.Style{Color: color.Green}})
-	})
-
-	DisableWhitelistCommand := command.Command(func(c *command.Context) error {
-		if !whitelist.Enabled {
-			return c.SendMessage(&component.Text{
-				Content: "Whitelist already off",
-				S:       component.Style{Color: color.Red},
-			})
-		}
-		res, err := os.OpenFile("whitelist.json", os.O_RDWR|os.O_TRUNC, 0755)
-		if err != nil {
-			return c.SendMessage(&component.Text{
-				Content: "Error while reading whitelist.json",
-			})
-		}
-		defer res.Close()
-
-		whitelist.Enabled = false
-
-		if err := json.NewEncoder(res).Encode(whitelist); err != nil {
-			return err
-		}
-
-		if err := ReloadWhitelist(); err != nil {
-			return err
-		}
-
-		return c.SendMessage(&component.Text{Content: "Disabled whitelist!", S: component.Style{Color: color.Green}})
-	})
-
-	ListWhitelistCommand := command.Command(func(c *command.Context) error {
-		var users bytes.Buffer
-		for _, i := range whitelist.Whitelisted {
-			str, _ := uuid.UUIDtoUsername(i)
-			if users.Len() == 0 {
-				users.WriteString(str)
-			} else {
-				users.WriteString(", " + str)
-			}
-		}
-
-		return c.SendMessage(&component.Text{Content: fmt.Sprintf("Whitelisted users (%d): %s", len(whitelist.Whitelisted), users.String()), S: component.Style{Color: color.Green}})
-	})
-
-	return brigodier.Literal("whitelist").
-		Then(brigodier.Literal("enable").Executes(EnableWhitelistCommand)).
-		Then(brigodier.Literal("disable").Executes(DisableWhitelistCommand)).
-		Then(brigodier.Literal("list").Executes(ListWhitelistCommand)).
-		Then(brigodier.Literal("reload").Executes(ReloadWhitelistCommand())).
-		Then(brigodier.Literal("add").Executes(UsageWhitelist()).Then(brigodier.Argument("user", brigodier.String).Executes(whitelistAddCommand))).
-		Then(brigodier.Literal("remove").Executes(UsageWhitelist()).Then(brigodier.Argument("user", brigodier.String).Executes(whitelistRemoveCommand))).Executes(UsageWhitelist())
+type Whitelist struct {
+	name string
+	file WhitelistFile
+	m    sync.RWMutex
 }
 
-func UsageWhitelist() brigodier.Command {
-	return command.Command(func(c *command.Context) error {
-		return c.SendMessage(&component.Text{
-			Content: "Usage: /whitelist <add/remove/enable/disable> <user>",
-			S:       component.Style{Color: color.Red},
-		})
-	})
+func ReadWhitelist(file string) (*Whitelist, error) {
+	w := &Whitelist{
+		name: file,
+		file: WhitelistFile{
+			Enabled:     false,
+			Whitelisted: make([]string, 0),
+		},
+	}
+
+	if err := w.Reload(); err != nil {
+		return nil, err
+	}
+
+	return w, nil
 }
 
-func ReloadWhitelistCommand() brigodier.Command {
-	return command.Command(func(c *command.Context) error {
-		if err := ReloadWhitelist(); err != nil {
-			return err
-		}
-
-		return c.SendMessage(&component.Text{
-			Content: "Reloaded command successfully!",
-			S:       component.Style{Color: color.Green},
-		})
-	})
-}
-
-func ReloadWhitelist() error {
-	res, err := os.OpenFile("whitelist.json", os.O_RDONLY, 0755)
+func (w *Whitelist) Reload() error {
+	fd, err := os.OpenFile(w.name, os.O_RDONLY, 0755)
 	if err != nil {
+		if os.IsNotExist(err) {
+			// Save the default whitelist file
+			return w.Save()
+		}
+
 		return err
 	}
-	defer res.Close()
+	defer fd.Close()
 
-	if err := json.NewDecoder(res).Decode(&whitelist); err != nil {
+	w.m.Lock()
+	defer w.m.Unlock()
+	if err := json.NewDecoder(fd).Decode(&w.file); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-type WhitelistFile struct {
-	Enabled     bool     `json:"enabled"`
-	Whitelisted []string `json:"whitelisted"`
+func (w *Whitelist) Save() error {
+
+	fd, err := os.OpenFile(w.name, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0755)
+	if err != nil {
+		return err
+	}
+	defer fd.Close()
+
+	w.m.Lock()
+	defer w.m.Unlock()
+	if err := json.NewEncoder(fd).Encode(w.file); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (w *Whitelist) Enabled() bool {
+	w.m.RLock()
+	defer w.m.RUnlock()
+
+	return w.file.Enabled
+}
+
+func (w *Whitelist) Enable() error {
+	w.m.Lock()
+	w.file.Enabled = true
+	w.m.Unlock()
+
+	return w.Save()
+}
+
+func (w *Whitelist) Disable() error {
+	w.m.Lock()
+	w.file.Enabled = false
+	w.m.Unlock()
+
+	return w.Save()
+}
+
+func (w *Whitelist) Add(uuid string) error {
+	w.m.Lock()
+	w.file.Whitelisted = append(w.file.Whitelisted, uuid)
+	w.m.Unlock()
+
+	return w.Save()
+}
+
+func (w *Whitelist) Remove(uuid string) error {
+	w.m.Lock()
+	w.file.Whitelisted = slices.DeleteFunc(w.file.Whitelisted, func(s string) bool {
+		return s == uuid
+	})
+	w.m.Unlock()
+
+	return w.Save()
+}
+
+func (w *Whitelist) Contains(uuid string) bool {
+	w.m.RLock()
+	defer w.m.RUnlock()
+
+	return slices.Contains(w.file.Whitelisted, uuid)
+}
+
+func (w *Whitelist) AllWhitelisted() []string {
+	w.m.RLock()
+	defer w.m.RUnlock()
+
+	copy := make([]string, 0)
+	copy = append(copy, w.file.Whitelisted...)
+
+	return copy
 }

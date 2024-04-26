@@ -31,5 +31,4 @@ func onPingEvent() func(e *proxy.PingEvent) {
 		}
 		p.Players.Max = p.Players.Online + 1
 	}
-
 }
