@@ -7,8 +7,7 @@ import (
 	"net"
 	"os"
 
-	"github.com/nats-io/nats.go"
-	"github.com/nats-io/nats.go/jetstream"
+	"github.com/Community-Sourced-Minecraft/Gate-Proxy/internal/hosting"
 	"github.com/robinbraemer/event"
 	"go.minekube.com/brigodier"
 	"go.minekube.com/common/minecraft/color"
@@ -29,12 +28,11 @@ func (p PodInfo) DebugString() string {
 
 type CorePlugin struct {
 	*proxy.Proxy
-	NATS      *nats.Conn
-	JetStream jetstream.JetStream
-	Info      PodInfo
+	NATS *hosting.NATS
+	Info PodInfo
 }
 
-func New(nc *nats.Conn, js jetstream.JetStream) (proxy.Plugin, error) {
+func New(nats *hosting.NATS) (proxy.Plugin, error) {
 	info := PodInfo{
 		Network:      os.Getenv("CSMC_NETWORK"),
 		PodName:      os.Getenv("POD_NAME"),
@@ -44,7 +42,7 @@ func New(nc *nats.Conn, js jetstream.JetStream) (proxy.Plugin, error) {
 	return proxy.Plugin{
 		Name: "Core",
 		Init: func(ctx context.Context, prx *proxy.Proxy) error {
-			p := &CorePlugin{Proxy: prx, NATS: nc, JetStream: js, Info: info}
+			p := &CorePlugin{Proxy: prx, NATS: nats, Info: info}
 
 			return p.Init(ctx)
 		},
@@ -71,7 +69,7 @@ func (p *CorePlugin) registerPodByName(gamemodeName, podName string) error {
 func (p *CorePlugin) Init(ctx context.Context) error {
 	gamemodesKVBucket := "csmc_" + p.Info.PodNamespace + "_" + p.Info.Network + "_gamemodes"
 	log.Printf("Connecting to %s", gamemodesKVBucket)
-	gamemodesKV, err := p.JetStream.KeyValue(ctx, gamemodesKVBucket)
+	gamemodesKV, err := p.NATS.JetStream().KeyValue(ctx, gamemodesKVBucket)
 	if err != nil {
 		return err
 	}
@@ -92,7 +90,7 @@ func (p *CorePlugin) Init(ctx context.Context) error {
 			gamemodeName := key.Key()
 
 			log.Printf("Gamemode %s added", gamemodeName)
-			gamemodeInstancesKV, err := p.JetStream.KeyValue(ctx, "csmc_"+p.Info.PodNamespace+"_"+p.Info.Network+"_gamemode_"+gamemodeName+"_instances")
+			gamemodeInstancesKV, err := p.NATS.JetStream().KeyValue(ctx, "csmc_"+p.Info.PodNamespace+"_"+p.Info.Network+"_gamemode_"+gamemodeName+"_instances")
 			if err != nil {
 				log.Fatal(err)
 			}

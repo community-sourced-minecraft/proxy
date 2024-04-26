@@ -4,6 +4,7 @@ go 1.22.2
 
 require (
 	github.com/nats-io/nats.go v1.34.1
+	github.com/pkg/errors v0.9.1
 	github.com/robinbraemer/event v0.0.1
 	go.minekube.com/brigodier v0.0.1
 	go.minekube.com/common v0.0.5
