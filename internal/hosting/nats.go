@@ -1,7 +1,8 @@
 package hosting
 
 import (
-	"log"
+	"context"
+	"encoding/json"
 	"os"
 
 	"github.com/nats-io/nats.go"
@@ -9,34 +10,44 @@ import (
 	"github.com/pkg/errors"
 )
 
-type NATS struct {
-	nc *nats.Conn
-	js jetstream.JetStream
-}
-
-func Init() (*NATS, error) {
+func connectToNATS() (*nats.Conn, jetstream.JetStream, error) {
 	natsUrl := os.Getenv("NATS_URL")
 
 	nc, err := nats.Connect(natsUrl)
 	if err != nil {
-		log.Fatal(err)
+		return nil, nil, errors.Wrap(err, "failed to connect to NATS")
 	}
 
 	js, err := jetstream.New(nc)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to create JetStream")
+		return nil, nil, errors.Wrap(err, "failed to create JetStream")
 	}
 
-	return &NATS{
-		nc: nc,
-		js: js,
-	}, nil
+	return nc, js, nil
 }
 
-func (n *NATS) JetStream() jetstream.JetStream {
-	return n.js
+func GetKeyFromKV(ctx context.Context, kv jetstream.KeyValue, key string, obj any) error {
+	val, err := kv.Get(ctx, key)
+	if err != nil {
+		return errors.Wrap(err, "failed to get key-value")
+	}
+
+	if err := json.Unmarshal(val.Value(), &obj); err != nil {
+		return errors.Wrap(err, "failed to unmarshal key-value")
+	}
+
+	return nil
 }
 
-func (n *NATS) NATS() *nats.Conn {
-	return n.nc
+func SetKeyToKV(ctx context.Context, kv jetstream.KeyValue, key string, obj any) error {
+	val, err := json.Marshal(obj)
+	if err != nil {
+		return errors.Wrap(err, "failed to marshal key-value")
+	}
+
+	if _, err := kv.Put(ctx, key, val); err != nil {
+		return errors.Wrap(err, "failed to set key-value")
+	}
+
+	return nil
 }

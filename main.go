@@ -14,7 +14,7 @@ import (
 	"go.minekube.com/gate/pkg/edition/java/proxy"
 )
 
-type PluginCreator = func() (proxy.Plugin, error)
+type PluginCreator = func(h *hosting.Hosting) (proxy.Plugin, error)
 
 func main() {
 	permissionsFile, err := permissions.ReadFile("permissions.json")
@@ -22,20 +22,20 @@ func main() {
 		log.Fatal(err)
 	}
 
-	nats, err := hosting.Init()
+	h, err := hosting.Init()
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	var plugins = []PluginCreator{
-		func() (proxy.Plugin, error) {
-			return core.New(nats)
+		func(h *hosting.Hosting) (proxy.Plugin, error) {
+			return core.New(h)
 		},
-		func() (proxy.Plugin, error) {
+		func(_ *hosting.Hosting) (proxy.Plugin, error) {
 			return permissions.New(permissionsFile)
 		},
-		func() (proxy.Plugin, error) {
-			return whitelist.New(permissionsFile)
+		func(_ *hosting.Hosting) (proxy.Plugin, error) {
+			return whitelist.New(h, permissionsFile)
 		},
 	}
 
@@ -45,7 +45,7 @@ func main() {
 	)
 
 	for _, create := range plugins {
-		p, err := create()
+		p, err := create(h)
 		if err != nil {
 			log.Fatal(err)
 		}

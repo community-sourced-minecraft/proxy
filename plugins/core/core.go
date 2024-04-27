@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"net"
-	"os"
 
 	"github.com/Community-Sourced-Minecraft/Gate-Proxy/internal/hosting"
 	"github.com/robinbraemer/event"
@@ -16,33 +15,16 @@ import (
 	"go.minekube.com/gate/pkg/edition/java/proxy"
 )
 
-type PodInfo struct {
-	Network      string
-	PodName      string
-	PodNamespace string
-}
-
-func (p PodInfo) DebugString() string {
-	return fmt.Sprintf("PodInfo{Network: %s, PodName: %s, PodNamespace: %s}", p.Network, p.PodName, p.PodNamespace)
-}
-
 type CorePlugin struct {
-	*proxy.Proxy
-	NATS *hosting.NATS
-	Info PodInfo
+	proxy *proxy.Proxy
+	h     *hosting.Hosting
 }
 
-func New(nats *hosting.NATS) (proxy.Plugin, error) {
-	info := PodInfo{
-		Network:      os.Getenv("CSMC_NETWORK"),
-		PodName:      os.Getenv("POD_NAME"),
-		PodNamespace: os.Getenv("POD_NAMESPACE"),
-	}
-
+func New(h *hosting.Hosting) (proxy.Plugin, error) {
 	return proxy.Plugin{
 		Name: "Core",
 		Init: func(ctx context.Context, prx *proxy.Proxy) error {
-			p := &CorePlugin{Proxy: prx, NATS: nats, Info: info}
+			p := &CorePlugin{proxy: prx, h: h}
 
 			return p.Init(ctx)
 		},
@@ -50,26 +32,26 @@ func New(nats *hosting.NATS) (proxy.Plugin, error) {
 }
 
 func (p *CorePlugin) registerPodByName(gamemodeName, podName string) error {
-	ip, err := net.ResolveTCPAddr("tcp4", podName+"."+gamemodeName+"."+p.Info.PodNamespace+".svc.cluster.local:25565")
+	ip, err := net.ResolveTCPAddr("tcp4", podName+"."+gamemodeName+"."+p.h.Info.PodNamespace+".svc.cluster.local:25565")
 	if err != nil {
 		return err
 	}
 
-	if s := p.Server(podName); s != nil {
-		if p.Unregister(s.ServerInfo()) {
+	if s := p.proxy.Server(podName); s != nil {
+		if p.proxy.Unregister(s.ServerInfo()) {
 			log.Printf("Unregistered server %s", podName)
 		}
 	}
 
-	_, err = p.Register(proxy.NewServerInfo(podName, ip))
+	_, err = p.proxy.Register(proxy.NewServerInfo(podName, ip))
 
 	return err
 }
 
 func (p *CorePlugin) Init(ctx context.Context) error {
-	gamemodesKVBucket := "csmc_" + p.Info.PodNamespace + "_" + p.Info.Network + "_gamemodes"
+	gamemodesKVBucket := "csmc_" + p.h.Info.PodNamespace + "_" + p.h.Info.Network + "_gamemodes"
 	log.Printf("Connecting to %s", gamemodesKVBucket)
-	gamemodesKV, err := p.NATS.JetStream().KeyValue(ctx, gamemodesKVBucket)
+	gamemodesKV, err := p.h.JetStream().KeyValue(ctx, gamemodesKVBucket)
 	if err != nil {
 		return err
 	}
@@ -90,7 +72,7 @@ func (p *CorePlugin) Init(ctx context.Context) error {
 			gamemodeName := key.Key()
 
 			log.Printf("Gamemode %s added", gamemodeName)
-			gamemodeInstancesKV, err := p.NATS.JetStream().KeyValue(ctx, "csmc_"+p.Info.PodNamespace+"_"+p.Info.Network+"_gamemode_"+gamemodeName+"_instances")
+			gamemodeInstancesKV, err := p.h.JetStream().KeyValue(ctx, "csmc_"+p.h.Info.PodNamespace+"_"+p.h.Info.Network+"_gamemode_"+gamemodeName+"_instances")
 			if err != nil {
 				log.Fatal(err)
 			}
@@ -119,7 +101,7 @@ func (p *CorePlugin) Init(ctx context.Context) error {
 		}
 	}()
 
-	p.Command().Register(brigodier.Literal("ping").
+	p.proxy.Command().Register(brigodier.Literal("ping").
 		Executes(command.Command(func(c *command.Context) error {
 			player, ok := c.Source.(proxy.Player)
 			if !ok {
@@ -133,15 +115,15 @@ func (p *CorePlugin) Init(ctx context.Context) error {
 		})),
 	)
 
-	event.Subscribe(p.Event(), 0, p.onServerSwitch)
-	event.Subscribe(p.Event(), 0, p.onChooseServer)
+	event.Subscribe(p.proxy.Event(), 0, p.onServerSwitch)
+	event.Subscribe(p.proxy.Event(), 0, p.onChooseServer)
 
 	return nil
 }
 
 func (p *CorePlugin) onChooseServer(e *proxy.PlayerChooseInitialServerEvent) {
 	// TODO: Get initial server from NATS
-	e.SetInitialServer(p.Server("lobby-0"))
+	e.SetInitialServer(p.proxy.Server("lobby-0"))
 }
 
 func (p *CorePlugin) onServerSwitch(e *proxy.ServerPostConnectEvent) {

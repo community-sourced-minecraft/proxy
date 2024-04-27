@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/Community-Sourced-Minecraft/Gate-Proxy/internal/hosting"
 	"github.com/Community-Sourced-Minecraft/Gate-Proxy/lib/util"
 	"github.com/Community-Sourced-Minecraft/Gate-Proxy/lib/util/uuid"
 	"github.com/Community-Sourced-Minecraft/Gate-Proxy/plugins/permissions"
@@ -16,13 +17,25 @@ import (
 	"go.minekube.com/gate/pkg/edition/java/proxy"
 )
 
-type WhitelistPlugin struct {
-	whitelist   *Whitelist
-	permissions *permissions.FPermission
+type Whitelist interface {
+	Reload() error
+	IsEnabled() bool
+	Enable() error
+	Disable() error
+	Add(uuid string) error
+	Remove(uuid string) error
+	Contains(uuid string) bool
+	AllWhitelisted() []string
 }
 
-func NewPlugin(permissions *permissions.FPermission) (*WhitelistPlugin, error) {
-	whitelist, err := ReadWhitelist("whitelist.json")
+type WhitelistPlugin struct {
+	whitelist   Whitelist
+	permissions *permissions.FPermission
+	h           *hosting.Hosting
+}
+
+func NewPlugin(h *hosting.Hosting, permissions *permissions.FPermission) (*WhitelistPlugin, error) {
+	whitelist, err := NewNATSWhitelist(context.Background(), h)
 	if err != nil {
 		return nil, err
 	}
@@ -30,6 +43,7 @@ func NewPlugin(permissions *permissions.FPermission) (*WhitelistPlugin, error) {
 	return &WhitelistPlugin{
 		whitelist:   whitelist,
 		permissions: permissions,
+		h:           h,
 	}, nil
 }
 
@@ -55,7 +69,7 @@ func (p *WhitelistPlugin) Init(prx *proxy.Proxy) error {
 func (p *WhitelistPlugin) onPostConnectEvent(e *proxy.ServerPostConnectEvent) {
 	uuid := e.Player().GameProfile().ID
 
-	if !p.whitelist.Contains(strings.Replace(uuid.String(), "-", "", -1)) && p.whitelist.Enabled() {
+	if !p.whitelist.Contains(strings.Replace(uuid.String(), "-", "", -1)) && p.whitelist.IsEnabled() {
 		e.Player().Disconnect(&component.Text{
 			Content: "You are not whitelisted!",
 			S:       component.Style{Color: color.Red},
@@ -63,11 +77,11 @@ func (p *WhitelistPlugin) onPostConnectEvent(e *proxy.ServerPostConnectEvent) {
 	}
 }
 
-func New(permissions *permissions.FPermission) (proxy.Plugin, error) {
+func New(h *hosting.Hosting, permissions *permissions.FPermission) (proxy.Plugin, error) {
 	return proxy.Plugin{
 		Name: "Whitelist",
 		Init: func(ctx context.Context, px *proxy.Proxy) error {
-			plugin, err := NewPlugin(permissions)
+			plugin, err := NewPlugin(h, permissions)
 			if err != nil {
 				return err
 			}
@@ -241,7 +255,7 @@ func (p *WhitelistPlugin) enableCommand() brigodier.Command {
 		if !p.permissions.UserHasPermission(c.Source.(proxy.Player).ID().String(), "whitelist.add") {
 			return PermissionMissingCommand().Run(c.CommandContext)
 		}
-		if p.whitelist.Enabled() {
+		if p.whitelist.IsEnabled() {
 			return c.SendMessage(&alreadyEnabled)
 		}
 
@@ -261,7 +275,7 @@ func (p *WhitelistPlugin) disableCommand() brigodier.Command {
 		if !p.permissions.UserHasPermission(c.Source.(proxy.Player).ID().String(), "whitelist.add") {
 			return PermissionMissingCommand().Run(c.CommandContext)
 		}
-		if !p.whitelist.Enabled() {
+		if !p.whitelist.IsEnabled() {
 			return c.SendMessage(&alreadyDisabled)
 		}
 
@@ -283,7 +297,7 @@ func (p *WhitelistPlugin) statusCommand() brigodier.Command {
 			return PermissionMissingCommand().Run(c.CommandContext)
 		}
 		var state component.Text
-		if p.whitelist.Enabled() {
+		if p.whitelist.IsEnabled() {
 			state = enabled
 		} else {
 			state = disabled
