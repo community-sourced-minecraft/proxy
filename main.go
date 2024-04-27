@@ -3,6 +3,7 @@ package main
 import (
 	"github.com/Community-Sourced-Minecraft/Gate-Proxy/plugins/core"
 	"github.com/Community-Sourced-Minecraft/Gate-Proxy/plugins/motd"
+	"github.com/Community-Sourced-Minecraft/Gate-Proxy/plugins/permissions"
 	"github.com/Community-Sourced-Minecraft/Gate-Proxy/plugins/tab"
 	"github.com/Community-Sourced-Minecraft/Gate-Proxy/plugins/whitelist"
 	"go.minekube.com/gate/cmd/gate"
@@ -15,6 +16,7 @@ func main() {
 		motd.Plugin,
 		core.Plugin,
 		whitelist.Plugin,
+		permissions.Plugin,
 	)
 
 	gate.Execute()
