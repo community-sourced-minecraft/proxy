@@ -2,14 +2,18 @@ package permissions
 
 import (
 	"encoding/json"
+	"log"
 	"os"
 	"strings"
 	"sync"
+
+	"github.com/Community-Sourced-Minecraft/Gate-Proxy/lib/util"
+	"github.com/Community-Sourced-Minecraft/Gate-Proxy/lib/util/uuid"
 )
 
 type PermissionFile struct {
-	Users  []PermissionUser  `json:"users"`
-	Groups []PermissionGroup `json:"groups"`
+	Users  map[string]PermissionUser  `json:"users"`
+	Groups map[string]PermissionGroup `json:"groups"`
 }
 
 type FPermission struct {
@@ -19,24 +23,22 @@ type FPermission struct {
 }
 
 type PermissionUser struct {
-	uuid        string
-	group       []PermissionGroup
-	permissions []string
+	Groups      []string `json:"groups"`
+	Permissions []string `json:"permissions"`
 }
 
 type PermissionGroup struct {
-	name        string
-	prefix      string
-	weight      uint8
-	permissions []string
+	Prefix      string   `json:"prefix"`
+	Weight      uint8    `json:"weight"`
+	Permissions []string `json:"permissions"`
 }
 
 func ReadFile(file string) (*FPermission, error) {
 	w := &FPermission{
 		name: file,
 		file: PermissionFile{
-			Users:  make([]PermissionUser, 0),
-			Groups: make([]PermissionGroup, 0),
+			Users:  make(map[string]PermissionUser),
+			Groups: make(map[string]PermissionGroup),
 		},
 	}
 
@@ -85,68 +87,76 @@ func (w *FPermission) Save() error {
 	return nil
 }
 
-func (p *FPermission) GetGroups() []PermissionGroup {
-	return p.file.Groups
+func (p *FPermission) GetGroups() []string {
+	return util.MapKeys(p.file.Groups)
 }
 
-func (p *FPermission) GetGroupsAsString() []string {
-	list := make([]string, 0)
-
-	for _, group := range p.GetGroups() {
-		list = append(list, group.name)
-	}
-
-	return list
+func (p *FPermission) GetUsers() []string {
+	return util.MapKeys(p.file.Users)
 }
 
-func (p *FPermission) GroupPermissions(name string) []string {
-	list := make([]string, 0)
-
-	for _, group := range p.GetGroups() {
-		if group.name == name {
-			list = append(list, group.permissions...)
-		}
+func (p *FPermission) GroupPermissions(name string) ([]string, bool) {
+	group, ok := p.file.Groups[name]
+	if !ok {
+		return make([]string, 0), false
 	}
 
-	return list
+	return group.Permissions, true
+}
+
+func (p *FPermission) UserPermissions(name string) ([]string, bool) {
+	user, ok := p.file.Users[name]
+	if !ok {
+		return make([]string, 0), false
+	}
+
+	return user.Permissions, true
 }
 
 func (p *FPermission) GroupHasPermission(name string, permission string) bool {
-	result := false
+	perms, exists := p.GroupPermissions(name)
+	if !exists {
+		log.Printf("WARN: Group %s does not exist", name)
+		return false
+	}
 
-	for _, _permission := range p.GroupPermissions(name) {
+	for _, _permission := range perms {
 		if _permission == permission {
-			result = true
+			return true
 		}
 
 		if strings.Split(_permission, ".")[0] == strings.Split(permission, ".")[0] && strings.Split(_permission, ".")[1] == "*" {
-			result = true
+			return true
 		}
 	}
 
-	return result
+	return false
 }
 
-func (p *FPermission) UserHasPermission(uuid string, permission string) bool {
-	result := false
+func (p *FPermission) UserHasPermission(player string, permission string) bool {
+	player = uuid.Normalize(player)
 
-	for _, user := range p.file.Users {
-		for _, userGroup := range user.group {
-			if p.GroupHasPermission(userGroup.name, permission) {
-				result = true
-			}
+	user, ok := p.file.Users[player]
+	if !ok {
+		log.Printf("DBG: User %s does not exist", player)
+		return false
+	}
+
+	for _, userPermission := range user.Permissions {
+		if userPermission == permission {
+			return true
 		}
 
-		for _, userPermission := range user.permissions {
-			if userPermission == permission {
-				result = true
-			}
-
-			if strings.Split(userPermission, ".")[0] == strings.Split(permission, ".")[0] && strings.Split(userPermission, ".")[1] == "*" {
-				result = true
-			}
+		if strings.Split(userPermission, ".")[0] == strings.Split(permission, ".")[0] && strings.Split(userPermission, ".")[1] == "*" {
+			return true
 		}
 	}
 
-	return result
+	for _, userGroup := range user.Groups {
+		if p.GroupHasPermission(userGroup, permission) {
+			return true
+		}
+	}
+
+	return false
 }

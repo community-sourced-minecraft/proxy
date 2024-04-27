@@ -14,16 +14,25 @@ import (
 
 type PluginCreator = func() (proxy.Plugin, error)
 
-var plugins = []PluginCreator{
-	permissions.New,
-}
-
 func main() {
+	permissionsFile, err := permissions.ReadFile("permissions.json")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	var plugins = []PluginCreator{
+		func() (proxy.Plugin, error) {
+			return permissions.New(permissionsFile)
+		},
+		func() (proxy.Plugin, error) {
+			return whitelist.New(permissionsFile)
+		},
+	}
+
 	proxy.Plugins = append(proxy.Plugins,
 		tab.Plugin,
 		motd.Plugin,
 		core.Plugin,
-		whitelist.Plugin,
 	)
 
 	for _, create := range plugins {
