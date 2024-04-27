@@ -37,11 +37,11 @@ func main() {
 		func(_ *hosting.Hosting) (proxy.Plugin, error) {
 			return whitelist.New(h, permissionsFile)
 		},
+		motd.New,
 	}
 
 	proxy.Plugins = append(proxy.Plugins,
 		tab.Plugin,
-		motd.Plugin,
 	)
 
 	for _, create := range plugins {
