@@ -35,7 +35,7 @@ func onPostLogin(e *proxy.ServerPostConnectEvent) {
 	}
 
 	footer := &c.Text{
-		Content: "\n  github.com/Community-Sourced-Minecraft  \n",
+		Content: "\n  github.com/community-sourced-minecraft  \n",
 		S:       c.Style{Color: color.Yellow},
 	}
 

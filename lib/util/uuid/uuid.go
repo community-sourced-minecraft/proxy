@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 )
 
 type MCResponse struct {
@@ -14,6 +15,7 @@ type MCResponse struct {
 }
 
 func UsernameToUUID(username string) (string, error) {
+	// TODO: implement caching
 	res, err := http.Get("https://api.mojang.com/users/profiles/minecraft/" + username)
 	if err != nil {
 		return "", err
@@ -33,6 +35,7 @@ func UsernameToUUID(username string) (string, error) {
 }
 
 func UUIDtoUsername(UUID string) (string, error) {
+	// TODO: implement caching
 	res, err := http.Get("https://sessionserver.mojang.com/session/minecraft/profile/" + UUID)
 	if err != nil {
 		return "", err
@@ -49,4 +52,8 @@ func UUIDtoUsername(UUID string) (string, error) {
 	}
 
 	return *username.Name, nil
+}
+
+func Normalize(uuid string) string {
+	return strings.ReplaceAll(uuid, "-", "")
 }
