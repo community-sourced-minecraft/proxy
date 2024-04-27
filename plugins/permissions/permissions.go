@@ -113,6 +113,15 @@ func (p *FPermission) UserPermissions(name string) ([]string, bool) {
 	return user.Permissions, true
 }
 
+func (p *FPermission) UserGroups(name string) ([]string, bool) {
+	user, ok := p.file.Users[name]
+	if !ok {
+		return make([]string, 0), false
+	}
+
+	return user.Groups, true
+}
+
 func (p *FPermission) GroupHasPermission(name string, permission string) bool {
 	perms, exists := p.GroupPermissions(name)
 	if !exists {

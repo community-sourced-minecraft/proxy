@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"slices"
-	"strings"
 
 	"github.com/Community-Sourced-Minecraft/Gate-Proxy/lib/util/uuid"
 	"go.minekube.com/brigodier"
@@ -72,8 +70,8 @@ func (p *PermissionsPlugin) command() brigodier.LiteralNodeBuilder {
 					}
 					return b.Build()
 				})).
-				Then(brigodier.Literal("list").
-					Executes(p.ListPermission(User))),
+				Then(brigodier.Literal("info").
+					Executes(p.InfoCommand(User))),
 			),
 		).
 		Then(brigodier.
@@ -81,11 +79,11 @@ func (p *PermissionsPlugin) command() brigodier.LiteralNodeBuilder {
 			Then(brigodier.
 				Argument("name", brigodier.String).
 				Then(brigodier.
-					Literal("list").
-					Executes(p.ListPermission(Group)),
+					Literal("info").
+					Executes(p.InfoCommand(Group)),
 				),
 			).
-			Executes(UsageCommand())).
+			Executes(p.helpCommand())).
 		Then(brigodier.
 			Literal("reload").
 			Executes(p.reloadCommand())).
@@ -99,7 +97,7 @@ const (
 	Group PermissionListType = "Group"
 )
 
-func (p *PermissionsPlugin) ListPermission(_type PermissionListType) brigodier.Command {
+func (p *PermissionsPlugin) InfoCommand(_type PermissionListType) brigodier.Command {
 	return command.Command(func(c *command.Context) error {
 		name := c.String("name")
 
@@ -114,48 +112,85 @@ func (p *PermissionsPlugin) ListPermission(_type PermissionListType) brigodier.C
 			}
 			UUID = uuid.Normalize(UUID)
 
-			permissionList, exists := p.permissions.UserPermissions(UUID)
-			if !exists {
-				log.Printf("WARN: User %s doesn't exist", name)
-				return c.SendMessage(&component.Text{
-					// TODO: Change this message
-					Content: "This user doesn't have any permissions set",
-					S:       component.Style{Color: color.Red},
-				})
+			groupsMsg := []component.Component{
+				&component.Text{Content: "\n >", S: component.Style{Color: color.Yellow}},
+				&component.Text{Content: " default", S: component.Style{Color: color.White}},
+			}
+			permissionMsg := []component.Component{
+				&component.Text{Content: " >", S: component.Style{Color: color.Yellow}},
+				&component.Text{Content: " " + name + " doesn't have any permissions set.", S: component.Style{Color: color.White}},
 			}
 
-			permissions := strings.Join(permissionList, ", ")
+			groups, ok := p.permissions.UserGroups(UUID)
+
+			if ok {
+				// groupsMsg = append(groupsMsg, &component.Text{Content: "\n"})
+
+				for _, group := range groups {
+					groupsMsg = append(groupsMsg, &component.Text{Content: "\n > ", S: component.Style{Color: color.Yellow}}, &component.Text{Content: group, S: component.Style{Color: color.White}})
+				}
+			}
+
+			permissions, ok := p.permissions.UserPermissions(UUID)
+
+			if len(permissionMsg) != 0 && ok {
+				permissionMsg = []component.Component{&component.Text{Content: "\nPermissions: ", S: component.Style{Color: color.Yellow}}}
+
+				for _, permission := range permissions {
+					permissionMsg = append(permissionMsg, &component.Text{Content: "\n > ", S: component.Style{Color: color.Yellow}}, &component.Text{Content: permission, S: component.Style{Color: color.White}})
+				}
+			}
 
 			return c.SendMessage(&component.Text{
 				Extra: []component.Component{
-					&component.Text{Content: name + "'s Permissions (" + fmt.Sprint(len(permissionList)) + "): ", S: component.Style{Color: color.Blue}},
-					&component.Text{Content: permissions, S: component.Style{Color: color.Green}},
+					&component.Text{Content: "\n"},
+					&component.Text{Content: "User Info: ", S: component.Style{Color: color.Yellow}},
+					&component.Text{Content: name + "\n", S: component.Style{Color: color.White}},
+					&component.Text{Content: "UUID: ", S: component.Style{Color: color.Yellow}},
+					&component.Text{Content: UUID + "\n", S: component.Style{Color: color.White}},
+					&component.Text{Content: "Groups: ", S: component.Style{Color: color.Yellow}},
+					&component.Text{Extra: groupsMsg},
+					&component.Text{Extra: permissionMsg},
 				},
 			})
 		case Group:
-			if !slices.Contains(p.permissions.GetGroups(), name) {
-				return c.SendMessage(&component.Text{
-					Content: "This group doesn't exist!",
-					S:       component.Style{Color: color.Red},
-				})
-			}
-
 			permissionList, exists := p.permissions.GroupPermissions(name)
+			group := p.permissions.file.Groups[name]
 			if !exists {
 				log.Printf("WARN: Group %s doesn't exist", name)
 				return c.SendMessage(&component.Text{
 					// TODO: Change this message
-					Content: "This group doesn't exist, idk what happened",
-					S:       component.Style{Color: color.Red},
+					S: component.Style{Color: color.Red},
+					Extra: []component.Component{
+						&component.Text{Content: "ᴘᴇʀᴍѕ ", S: component.Style{Color: color.Green, Bold: component.True}},
+						&component.Text{Content: "This group doesn't exist!", S: component.Style{Color: color.Red}},
+					},
 				})
 			}
 
-			permissions := strings.Join(permissionList, ", ")
+			permissionMsg := []component.Component{
+				&component.Text{Content: " >", S: component.Style{Color: color.Yellow}},
+				&component.Text{Content: " " + name + " doesn't have any permissions set.", S: component.Style{Color: color.White}},
+			}
+
+			if len(permissionMsg) != 0 {
+				permissionMsg = []component.Component{&component.Text{Content: "\nPermissions: ", S: component.Style{Color: color.Yellow}}}
+
+				for _, permission := range permissionList {
+					permissionMsg = append(permissionMsg, &component.Text{Content: "\n > ", S: component.Style{Color: color.Yellow}}, &component.Text{Content: permission, S: component.Style{Color: color.White}})
+				}
+			}
 
 			return c.SendMessage(&component.Text{
 				Extra: []component.Component{
-					&component.Text{Content: name + "'s Permissions (" + fmt.Sprint(len(permissionList)) + "): ", S: component.Style{Color: color.Blue}},
-					&component.Text{Content: permissions, S: component.Style{Color: color.Green}},
+					&component.Text{Content: "\n"},
+					&component.Text{Content: "Group Info: ", S: component.Style{Color: color.Yellow}},
+					&component.Text{Content: name, S: component.Style{Color: color.White}},
+					&component.Text{Content: "\nWeight: ", S: component.Style{Color: color.Yellow}},
+					&component.Text{Content: fmt.Sprint(group.Weight), S: component.Style{Color: color.White}},
+					&component.Text{Content: "\nPrefix: ", S: component.Style{Color: color.Yellow}},
+					&component.Text{Content: group.Prefix, S: component.Style{Color: color.White}},
+					&component.Text{Extra: permissionMsg},
 				},
 			})
 		}
@@ -179,14 +214,6 @@ func (p *PermissionsPlugin) helpCommand() brigodier.Command {
 				&component.Text{Content: "/permissions reload", S: component.Style{Color: color.LightPurple, Bold: component.False}},
 			},
 		})
-	})
-}
-
-func UsageCommand() brigodier.Command {
-	usage := component.Text{Content: "Usage: /whitelist <add/remove/enable/disable> <user>", S: component.Style{Color: color.Red}}
-
-	return command.Command(func(c *command.Context) error {
-		return c.SendMessage(&usage)
 	})
 }
 
