@@ -46,16 +46,18 @@ func (p *PermissionsPlugin) Init(prx *proxy.Proxy) error {
 	return nil
 }
 
-var Plugin = proxy.Plugin{
-	Name: "Permissions",
-	Init: func(ctx context.Context, px *proxy.Proxy) error {
-		plugin, err := NewPlugin()
-		if err != nil {
-			return err
-		}
+func New() (proxy.Plugin, error) {
+	return proxy.Plugin{
+		Name: "Permissions",
+		Init: func(ctx context.Context, px *proxy.Proxy) error {
+			plugin, err := NewPlugin()
+			if err != nil {
+				return err
+			}
 
-		return plugin.Init(px)
-	},
+			return plugin.Init(px)
+		},
+	}, nil
 }
 
 func (p *PermissionsPlugin) command() brigodier.LiteralNodeBuilder {
