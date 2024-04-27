@@ -56,7 +56,6 @@ func (w *Whitelist) Reload() error {
 }
 
 func (w *Whitelist) Save() error {
-
 	fd, err := os.OpenFile(w.name, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0755)
 	if err != nil {
 		return err

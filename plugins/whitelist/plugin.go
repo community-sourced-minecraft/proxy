@@ -7,6 +7,7 @@ import (
 
 	"github.com/Community-Sourced-Minecraft/Gate-Proxy/lib/util"
 	"github.com/Community-Sourced-Minecraft/Gate-Proxy/lib/util/uuid"
+	"github.com/Community-Sourced-Minecraft/Gate-Proxy/plugins/permissions"
 	"github.com/robinbraemer/event"
 	"go.minekube.com/brigodier"
 	"go.minekube.com/common/minecraft/color"
@@ -16,17 +17,19 @@ import (
 )
 
 type WhitelistPlugin struct {
-	whitelist *Whitelist
+	whitelist   *Whitelist
+	permissions *permissions.FPermission
 }
 
-func NewPlugin() (*WhitelistPlugin, error) {
+func NewPlugin(permissions *permissions.FPermission) (*WhitelistPlugin, error) {
 	whitelist, err := ReadWhitelist("whitelist.json")
 	if err != nil {
 		return nil, err
 	}
 
 	return &WhitelistPlugin{
-		whitelist: whitelist,
+		whitelist:   whitelist,
+		permissions: permissions,
 	}, nil
 }
 
@@ -60,16 +63,18 @@ func (p *WhitelistPlugin) onPostConnectEvent(e *proxy.ServerPostConnectEvent) {
 	}
 }
 
-var Plugin = proxy.Plugin{
-	Name: "Whitelist",
-	Init: func(ctx context.Context, px *proxy.Proxy) error {
-		plugin, err := NewPlugin()
-		if err != nil {
-			return err
-		}
+func New(permissions *permissions.FPermission) (proxy.Plugin, error) {
+	return proxy.Plugin{
+		Name: "Whitelist",
+		Init: func(ctx context.Context, px *proxy.Proxy) error {
+			plugin, err := NewPlugin(permissions)
+			if err != nil {
+				return err
+			}
 
-		return plugin.Init(px)
-	},
+			return plugin.Init(px)
+		},
+	}, nil
 }
 
 func (p *WhitelistPlugin) command() brigodier.LiteralNodeBuilder {
@@ -79,7 +84,7 @@ func (p *WhitelistPlugin) command() brigodier.LiteralNodeBuilder {
 			Executes(p.statusCommand())).
 		Then(brigodier.
 			Literal("help").
-			Executes(UsageWhitelist())).
+			Executes(p.UsageWhitelist())).
 		Then(brigodier.
 			Literal("enable").
 			Executes(p.enableCommand())).
@@ -94,22 +99,36 @@ func (p *WhitelistPlugin) command() brigodier.LiteralNodeBuilder {
 			Executes(p.reloadCommand())).
 		Then(brigodier.
 			Literal("add").
-			Executes(UsageWhitelist()).
+			Executes(p.UsageWhitelist()).
 			Then(brigodier.
 				Argument("user", brigodier.String).
 				Executes(p.addCommand())),
 		).
 		Then(brigodier.
 			Literal("remove").
-			Executes(UsageWhitelist()).
+			Executes(p.UsageWhitelist()).
 			Then(brigodier.
 				Argument("user", brigodier.String).
 				Executes(p.removeCommand()))).
 		Executes(p.statusCommand())
 }
 
-func UsageWhitelist() brigodier.Command {
+func (p *WhitelistPlugin) UsageWhitelist() brigodier.Command {
 	usage := component.Text{Content: "Usage: /whitelist <add/remove/enable/disable> <user>", S: component.Style{Color: color.Red}}
+
+	return command.Command(func(c *command.Context) error {
+		if !p.permissions.UserHasPermission(c.Source.(proxy.Player).ID().String(), "whitelist.add") {
+			return PermissionMissingCommand().Run(c.CommandContext)
+		}
+		return c.SendMessage(&usage)
+	})
+}
+
+func PermissionMissingCommand() brigodier.Command {
+	usage := component.Text{
+		Content: "You don't have the permission to do that!",
+		S:       component.Style{Color: color.Red},
+	}
 
 	return command.Command(func(c *command.Context) error {
 		return c.SendMessage(&usage)
@@ -118,11 +137,15 @@ func UsageWhitelist() brigodier.Command {
 
 func (p *WhitelistPlugin) addCommand() brigodier.Command {
 	return command.Command(func(c *command.Context) error {
-		username := c.Arguments["user"].Result.(string)
+		if !p.permissions.UserHasPermission(c.Source.(proxy.Player).ID().String(), "whitelist.add") {
+			return PermissionMissingCommand().Run(c.CommandContext)
+		}
 
+		username := c.Arguments["user"].Result.(string)
 		uuid, err := uuid.UsernameToUUID(username)
+
 		if err != nil {
-			return UsageWhitelist().Run(c.CommandContext)
+			return p.UsageWhitelist().Run(c.CommandContext)
 		}
 
 		if p.whitelist.Contains(uuid) {
@@ -142,11 +165,14 @@ func (p *WhitelistPlugin) addCommand() brigodier.Command {
 
 func (p *WhitelistPlugin) removeCommand() brigodier.Command {
 	return command.Command(func(c *command.Context) error {
+		if !p.permissions.UserHasPermission(c.Source.(proxy.Player).ID().String(), "whitelist.add") {
+			return PermissionMissingCommand().Run(c.CommandContext)
+		}
 		username := c.Arguments["user"].Result.(string)
-
 		uuid, err := uuid.UsernameToUUID(username)
+
 		if err != nil {
-			return UsageWhitelist().Run(c.CommandContext)
+			return p.UsageWhitelist().Run(c.CommandContext)
 		}
 
 		if !p.whitelist.Contains(uuid) {
@@ -168,6 +194,10 @@ func (p *WhitelistPlugin) reloadCommand() brigodier.Command {
 	reloaded := component.Text{Content: "Reloaded command successfully!", S: component.Style{Color: color.Green}}
 
 	return command.Command(func(c *command.Context) error {
+		if !p.permissions.UserHasPermission(c.Source.(proxy.Player).ID().String(), "whitelist.add") {
+			return PermissionMissingCommand().Run(c.CommandContext)
+		}
+
 		if err := p.whitelist.Reload(); err != nil {
 			return err
 		}
@@ -178,6 +208,9 @@ func (p *WhitelistPlugin) reloadCommand() brigodier.Command {
 
 func (p *WhitelistPlugin) listCommand() brigodier.Command {
 	return command.Command(func(c *command.Context) error {
+		if !p.permissions.UserHasPermission(c.Source.(proxy.Player).ID().String(), "whitelist.add") {
+			return PermissionMissingCommand().Run(c.CommandContext)
+		}
 		users := strings.Builder{}
 
 		for i, id := range p.whitelist.AllWhitelisted() {
@@ -205,6 +238,9 @@ func (p *WhitelistPlugin) enableCommand() brigodier.Command {
 	enabled := component.Text{Content: "Enabled whitelist!", S: component.Style{Color: color.Green}}
 
 	return command.Command(func(c *command.Context) error {
+		if !p.permissions.UserHasPermission(c.Source.(proxy.Player).ID().String(), "whitelist.add") {
+			return PermissionMissingCommand().Run(c.CommandContext)
+		}
 		if p.whitelist.Enabled() {
 			return c.SendMessage(&alreadyEnabled)
 		}
@@ -222,6 +258,9 @@ func (p *WhitelistPlugin) disableCommand() brigodier.Command {
 	disabled := component.Text{Content: "Disabled whitelist!", S: component.Style{Color: color.Green}}
 
 	return command.Command(func(c *command.Context) error {
+		if !p.permissions.UserHasPermission(c.Source.(proxy.Player).ID().String(), "whitelist.add") {
+			return PermissionMissingCommand().Run(c.CommandContext)
+		}
 		if !p.whitelist.Enabled() {
 			return c.SendMessage(&alreadyDisabled)
 		}
@@ -240,6 +279,9 @@ func (p *WhitelistPlugin) statusCommand() brigodier.Command {
 	disabled := component.Text{Content: "disabled", S: component.Style{Color: color.Red}}
 
 	return command.Command(func(c *command.Context) error {
+		if !p.permissions.UserHasPermission(c.Source.(proxy.Player).ID().String(), "whitelist.add") {
+			return PermissionMissingCommand().Run(c.CommandContext)
+		}
 		var state component.Text
 		if p.whitelist.Enabled() {
 			state = enabled
