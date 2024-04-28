@@ -262,6 +262,8 @@ func (p *CorePlugin) onServerSwitch(e *proxy.ServerPostConnectEvent) {
 		Extra: []Component{
 			&Text{Content: "You connected to "},
 			&Text{Content: s.Server().ServerInfo().Name(), S: Style{Color: color.Yellow}},
+			&Text{Content: " through "},
+			&Text{Content: p.h.Info.PodName, S: Style{Color: color.Yellow}},
 			&Text{Content: "."},
 		},
 	})
