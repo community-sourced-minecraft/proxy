@@ -2,11 +2,15 @@ package core
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net"
+	"strings"
 
 	"github.com/Community-Sourced-Minecraft/Gate-Proxy/internal/hosting"
+	"github.com/Community-Sourced-Minecraft/Gate-Proxy/internal/hosting/rpc"
+	"github.com/nats-io/nats.go"
 	"github.com/robinbraemer/event"
 	"go.minekube.com/brigodier"
 	"go.minekube.com/common/minecraft/color"
@@ -100,6 +104,130 @@ func (p *CorePlugin) Init(ctx context.Context) error {
 			}()
 		}
 	}()
+
+	{
+		errorReqRes, err := json.Marshal(&rpc.TransferPlayerResponse{Status: rpc.StatusError})
+		if err != nil {
+			log.Printf("Failed to marshal transfer player response: %v", err)
+			return err
+		}
+
+		errorRes, err := json.Marshal(&rpc.Response{Type: rpc.TypeTransferPlayer, Data: string(errorReqRes)})
+		if err != nil {
+			log.Printf("Failed to marshal response: %v", err)
+			return err
+		}
+
+		sub, err := p.h.NATS().Subscribe(p.h.Info.RPCBaseSubject()+".transfers", func(msg *nats.Msg) {
+			log.Printf("Received raw request on transfers queue: %s", string(msg.Data))
+
+			payload := &rpc.Request{}
+			if err := json.Unmarshal(msg.Data, payload); err != nil {
+				log.Printf("Failed to unmarshal payload: %v", err)
+				return
+			}
+
+			if payload.Type != rpc.TypeTransferPlayer {
+				log.Printf("Invalid payload type: %s", payload.Type)
+				msg.Nak()
+				return
+			}
+
+			req := &rpc.TransferPlayerRequest{}
+			if err := json.Unmarshal([]byte(payload.Data), req); err != nil {
+				log.Printf("Failed to unmarshal transfer player request: %v", err)
+				msg.Nak()
+				return
+			}
+			log.Printf("Transfer player request: %v", req)
+
+			player := p.proxy.Player(req.UUID)
+			if player == nil {
+				log.Printf("Player %s not found", req.UUID)
+				msg.Nak()
+				return
+			}
+
+			var newServer proxy.RegisteredServer
+			for _, s := range p.proxy.Servers() {
+				sName := s.ServerInfo().Name()
+
+				if sName == req.Destination {
+					newServer = s
+					break
+				}
+
+				if strings.HasPrefix(sName, req.Destination+"-") {
+					newServer = s
+					break
+				}
+			}
+			if newServer == nil {
+				log.Printf("Server %s not found", req.Destination)
+				msg.Nak()
+				return
+			}
+
+			c, err := player.CreateConnectionRequest(newServer).Connect(context.Background())
+			if err != nil {
+				log.Printf("Failed to connect player %s to server %s: %v", req.UUID, req.Destination, err)
+
+				if err := msg.Respond(errorRes); err != nil {
+					log.Printf("Failed to respond to transfer player request: %v", err)
+				}
+
+				return
+			}
+
+			if c.Status() == proxy.AlreadyConnectedConnectionStatus {
+				log.Printf("Player %s is already connected to server %s", req.UUID, req.Destination)
+				msg.Ack()
+				return
+			} else if c.Status() != proxy.SuccessConnectionStatus {
+				log.Printf("Failed to connect player %s to server %s: %v: %v", req.UUID, req.Destination, c.Status(), c.Reason())
+
+				if err := msg.Respond(errorRes); err != nil {
+					log.Printf("Failed to respond to transfer player request: %v", err)
+				}
+
+				return
+			}
+
+			reqRes, err := json.Marshal(&rpc.TransferPlayerResponse{Status: rpc.StatusOk})
+			if err != nil {
+				log.Printf("Failed to marshal transfer player response: %v", err)
+
+				if err := msg.Respond(errorRes); err != nil {
+					log.Printf("Failed to respond to transfer player request: %v", err)
+				}
+
+				return
+			}
+
+			res, err := json.Marshal(&rpc.Response{Type: payload.Type, Data: string(reqRes)})
+			if err != nil {
+				log.Printf("Failed to marshal response: %v", err)
+
+				if err := msg.Respond(errorRes); err != nil {
+					log.Printf("Failed to respond to transfer player request: %v", err)
+				}
+
+				return
+			}
+
+			if err := msg.Respond(res); err != nil {
+				log.Printf("Failed to respond to transfer player request: %v", err)
+			}
+
+			log.Printf("Player %s transferred to server %s", req.UUID, req.Destination)
+		})
+		if err != nil {
+			log.Printf("Failed to subscribe to transfers: %v", err)
+			return err
+		}
+
+		log.Printf("Subscribed to %v", sub.Subject)
+	}
 
 	p.proxy.Command().Register(brigodier.Literal("ping").
 		Executes(command.Command(func(c *command.Context) error {
