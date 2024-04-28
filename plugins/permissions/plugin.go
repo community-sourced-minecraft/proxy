@@ -71,7 +71,9 @@ func (p *PermissionsPlugin) command() brigodier.LiteralNodeBuilder {
 					return b.Build()
 				})).
 				Then(brigodier.Literal("info").
-					Executes(p.InfoCommand(User))),
+					Executes(p.InfoCommand(User))).
+				Then(brigodier.Literal("remove").Then(brigodier.Argument("permission", brigodier.String).Executes(p.removeCommand(User)))).
+				Then(brigodier.Literal("add").Then(brigodier.Argument("permission", brigodier.String).Executes(p.addCommand(User)))),
 			),
 		).
 		Then(brigodier.
@@ -81,7 +83,9 @@ func (p *PermissionsPlugin) command() brigodier.LiteralNodeBuilder {
 				Then(brigodier.
 					Literal("info").
 					Executes(p.InfoCommand(Group)),
-				),
+				).
+				Then(brigodier.Literal("remove").Then(brigodier.Argument("permission", brigodier.String).Executes(p.removeCommand(Group)))).
+				Then(brigodier.Literal("add").Then(brigodier.Argument("permission", brigodier.String).Executes(p.addCommand(Group)))),
 			).
 			Executes(p.helpCommand())).
 		Then(brigodier.
@@ -99,6 +103,9 @@ const (
 
 func (p *PermissionsPlugin) InfoCommand(_type PermissionListType) brigodier.Command {
 	return command.Command(func(c *command.Context) error {
+		if !p.permissions.UserHasPermission(c.Source.(proxy.Player).ID().String(), "permissions.info") {
+			return PermissionMissingCommand().Run(c.CommandContext)
+		}
 		name := c.String("name")
 
 		switch _type {
@@ -201,11 +208,14 @@ func (p *PermissionsPlugin) InfoCommand(_type PermissionListType) brigodier.Comm
 
 func (p *PermissionsPlugin) helpCommand() brigodier.Command {
 	return command.Command(func(c *command.Context) error {
+		if !p.permissions.UserHasPermission(c.Source.(proxy.Player).ID().String(), "permissions.help") {
+			return PermissionMissingCommand().Run(c.CommandContext)
+		}
 		return c.SendMessage(&component.Text{
 			Extra: []component.Component{
 				&component.Text{Content: "ᴘᴇʀᴍѕ ", S: component.Style{Color: color.Green, Bold: component.True}},
 				&component.Text{Content: "Running", S: component.Style{Color: color.Green, Bold: component.False}},
-				&component.Text{Content: " Permissions v0.1.1-BETA\n", S: component.Style{Color: color.LightPurple, Bold: component.False}},
+				&component.Text{Content: " Permissions v0.2.1-BETA\n", S: component.Style{Color: color.LightPurple, Bold: component.False}},
 				&component.Text{Content: "> ", S: component.Style{Color: color.Blue, Bold: component.False}},
 				&component.Text{Content: "/permissions user\n", S: component.Style{Color: color.LightPurple, Bold: component.False}},
 				&component.Text{Content: "> ", S: component.Style{Color: color.Blue, Bold: component.False}},
@@ -217,14 +227,139 @@ func (p *PermissionsPlugin) helpCommand() brigodier.Command {
 	})
 }
 
-func (p *PermissionsPlugin) reloadCommand() brigodier.Command {
-	reloaded := component.Text{Content: "Reloaded permissions successfully!", S: component.Style{Color: color.Green}}
-
+func (p *PermissionsPlugin) addCommand(_type PermissionListType) brigodier.Command {
 	return command.Command(func(c *command.Context) error {
+		if !p.permissions.UserHasPermission(c.Source.(proxy.Player).ID().String(), "permissions.add") {
+			return PermissionMissingCommand().Run(c.CommandContext)
+		}
+
+		permission := c.Arguments["permission"].Result.(string)
+		name := c.Arguments["name"].Result.(string)
+
+		errorMsg := &component.Text{
+			Extra: []component.Component{
+				&component.Text{Content: "ᴘᴇʀᴍѕ ", S: component.Style{Color: color.Green, Bold: component.True}},
+				&component.Text{Content: "Permission ", S: component.Style{Color: color.Red}},
+				&component.Text{Content: permission, S: component.Style{Color: color.LightPurple}},
+				&component.Text{Content: " is already set for ", S: component.Style{Color: color.Red}},
+				&component.Text{Content: name, S: component.Style{Color: color.LightPurple}},
+			},
+		}
+
+		switch _type {
+		case User:
+			UUID, err := uuid.UsernameToUUID(name)
+			if err != nil {
+				return err
+			}
+
+			UUID = uuid.Normalize(UUID)
+			res := p.permissions.UserHasPermission(UUID, permission)
+			if res {
+				return c.SendMessage(errorMsg)
+			}
+
+			p.permissions.UserAddPermission(UUID, permission)
+		case Group:
+			res := p.permissions.GroupHasPermission(name, permission)
+			if res {
+				return c.SendMessage(errorMsg)
+			}
+
+			p.permissions.GroupAddPermission(name, permission)
+		}
+
+		return c.SendMessage(&component.Text{
+			Extra: []component.Component{
+				&component.Text{Content: "ᴘᴇʀᴍѕ ", S: component.Style{Color: color.Green, Bold: component.True}},
+				&component.Text{Content: "Set ", S: component.Style{Color: color.Green}},
+				&component.Text{Content: permission, S: component.Style{Color: color.LightPurple}},
+				&component.Text{Content: " for ", S: component.Style{Color: color.Green}},
+				&component.Text{Content: name, S: component.Style{Color: color.LightPurple}},
+			},
+		})
+	})
+}
+
+func (p *PermissionsPlugin) removeCommand(_type PermissionListType) brigodier.Command {
+	return command.Command(func(c *command.Context) error {
+		if !p.permissions.UserHasPermission(c.Source.(proxy.Player).ID().String(), "permissions.remove") {
+			return PermissionMissingCommand().Run(c.CommandContext)
+		}
+
+		permission := c.Arguments["permission"].Result.(string)
+		name := c.Arguments["name"].Result.(string)
+
+		errorMsg := &component.Text{
+			Extra: []component.Component{
+				&component.Text{Content: "ᴘᴇʀᴍѕ ", S: component.Style{Color: color.Green, Bold: component.True}},
+				&component.Text{Content: "Permission ", S: component.Style{Color: color.Red}},
+				&component.Text{Content: permission, S: component.Style{Color: color.LightPurple}},
+				&component.Text{Content: " doesn't exists for ", S: component.Style{Color: color.Red}},
+				&component.Text{Content: name, S: component.Style{Color: color.LightPurple}},
+			},
+		}
+
+		switch _type {
+		case User:
+			UUID, err := uuid.UsernameToUUID(name)
+			if err != nil {
+				return err
+			}
+
+			UUID = uuid.Normalize(UUID)
+			res := p.permissions.UserHasPermission(UUID, permission)
+			if !res {
+				return c.SendMessage(errorMsg)
+			}
+
+			p.permissions.UserRemovePermission(UUID, permission)
+		case Group:
+			res := p.permissions.GroupHasPermission(name, permission)
+			if !res {
+				return c.SendMessage(errorMsg)
+			}
+
+			p.permissions.GroupRemovePermission(name, permission)
+		}
+
+		return c.SendMessage(&component.Text{
+			Extra: []component.Component{
+				&component.Text{Content: "ᴘᴇʀᴍѕ ", S: component.Style{Color: color.Green, Bold: component.True}},
+				&component.Text{Content: "Removed ", S: component.Style{Color: color.Green}},
+				&component.Text{Content: permission, S: component.Style{Color: color.LightPurple}},
+				&component.Text{Content: " for ", S: component.Style{Color: color.Green}},
+				&component.Text{Content: name, S: component.Style{Color: color.LightPurple}},
+			},
+		})
+	})
+}
+
+func (p *PermissionsPlugin) reloadCommand() brigodier.Command {
+	return command.Command(func(c *command.Context) error {
+		if !p.permissions.UserHasPermission(c.Source.(proxy.Player).ID().String(), "permissions.reload") {
+			return PermissionMissingCommand().Run(c.CommandContext)
+		}
 		if err := p.permissions.Reload(); err != nil {
 			return err
 		}
 
-		return c.SendMessage(&reloaded)
+		return c.SendMessage(&component.Text{
+			Extra: []component.Component{
+				&component.Text{Content: "ᴘᴇʀᴍѕ ", S: component.Style{Color: color.Green, Bold: component.True}},
+				&component.Text{Content: "Reloaded permissions successfully!", S: component.Style{Color: color.Green}},
+			},
+		})
+	})
+}
+
+func PermissionMissingCommand() brigodier.Command {
+	usage := component.Text{
+		Content: "You don't have the permission to do that!",
+		S:       component.Style{Color: color.Red},
+	}
+
+	return command.Command(func(c *command.Context) error {
+		return c.SendMessage(&usage)
 	})
 }

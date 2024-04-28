@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 
@@ -71,7 +72,6 @@ func (w *FPermission) Reload() error {
 }
 
 func (w *FPermission) Save() error {
-
 	fd, err := os.OpenFile(w.name, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0755)
 	if err != nil {
 		return err
@@ -168,4 +168,53 @@ func (p *FPermission) UserHasPermission(player string, permission string) bool {
 	}
 
 	return false
+}
+
+func (p *FPermission) UserAddPermission(UUID string, permission string) error {
+	p.m.Lock()
+	UUID = uuid.Normalize(UUID)
+	user := p.file.Users[UUID]
+	user.Permissions = append(user.Permissions, permission)
+	p.file.Users[UUID] = user
+	p.m.Unlock()
+	return p.Save()
+}
+
+func (p *FPermission) GroupAddPermission(name string, permission string) error {
+	p.m.Lock()
+	group := p.file.Groups[name]
+	group.Permissions = append(group.Permissions, permission)
+	p.file.Groups[name] = group
+	p.m.Unlock()
+
+	return p.Save()
+}
+
+func (p *FPermission) UserRemovePermission(UUID string, permission string) error {
+	p.m.Lock()
+	UUID = uuid.Normalize(UUID)
+	user := p.file.Users[UUID]
+
+	user.Permissions = slices.DeleteFunc(user.Permissions, func(s string) bool {
+		return s == permission
+	})
+
+	p.file.Users[UUID] = user
+	p.m.Unlock()
+
+	return p.Save()
+}
+
+func (p *FPermission) GroupRemovePermission(name string, permission string) error {
+	p.m.Lock()
+	group := p.file.Groups[name]
+
+	group.Permissions = slices.DeleteFunc(group.Permissions, func(s string) bool {
+		return s == permission
+	})
+
+	p.file.Groups[name] = group
+	p.m.Unlock()
+
+	return p.Save()
 }
