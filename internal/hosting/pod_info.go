@@ -34,3 +34,14 @@ func (p PodInfo) KVNetworkKey() string {
 func (p PodInfo) KVGamemodesKey() string {
 	return fmt.Sprintf("%s_gamemodes", p.KVNetworkKey())
 }
+
+// csmc_<namespace>_<network>_instances<Container hostname, InstanceInfo>
+func (p PodInfo) KVInstancesKey() string {
+	return fmt.Sprintf("%s_instances", p.KVNetworkKey())
+}
+
+type InstanceInfo struct {
+	Gamemode string `json:"gamemode"`
+	Address  string `json:"address"`
+	Port     int    `json:"port"`
+}

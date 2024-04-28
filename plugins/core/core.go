@@ -35,8 +35,8 @@ func New(h *hosting.Hosting) (proxy.Plugin, error) {
 	}, nil
 }
 
-func (p *CorePlugin) registerPodByName(gamemodeName, podName string) error {
-	ip, err := net.ResolveTCPAddr("tcp4", podName+"."+gamemodeName+"."+p.h.Info.PodNamespace+".svc.cluster.local:25565")
+func (p *CorePlugin) registerPodByName(podName string, info hosting.InstanceInfo) error {
+	ip, err := net.ResolveTCPAddr("tcp4", info.Address+":25565")
 	if err != nil {
 		return err
 	}
@@ -53,13 +53,12 @@ func (p *CorePlugin) registerPodByName(gamemodeName, podName string) error {
 }
 
 func (p *CorePlugin) Init(ctx context.Context) error {
-	gamemodesKVBucket := "csmc_" + p.h.Info.PodNamespace + "_" + p.h.Info.Network + "_gamemodes"
-	log.Printf("Connecting to %s", gamemodesKVBucket)
-	gamemodesKV, err := p.h.JetStream().KeyValue(ctx, gamemodesKVBucket)
+	bucket := p.h.Info.KVInstancesKey()
+	gamemodesKV, err := p.h.JetStream().KeyValue(ctx, bucket)
 	if err != nil {
 		return err
 	}
-	log.Printf("Connected to %s", gamemodesKVBucket)
+	log.Printf("Watching %s", bucket)
 
 	go func() {
 		watcher, err := gamemodesKV.WatchAll(ctx)
@@ -69,39 +68,37 @@ func (p *CorePlugin) Init(ctx context.Context) error {
 
 		for key := range watcher.Updates() {
 			if key == nil {
-				log.Println("Replayed keys for all gamemodes")
+				log.Println("Replayed keys for all instances")
 				continue
 			}
 
-			gamemodeName := key.Key()
+			podName := key.Key()
 
-			log.Printf("Gamemode %s added", gamemodeName)
-			gamemodeInstancesKV, err := p.h.JetStream().KeyValue(ctx, "csmc_"+p.h.Info.PodNamespace+"_"+p.h.Info.Network+"_gamemode_"+gamemodeName+"_instances")
-			if err != nil {
-				log.Fatal(err)
-			}
+			switch key.Operation() {
+			case jetstream.KeyValuePut:
+				info := hosting.InstanceInfo{}
+				if err := json.Unmarshal(key.Value(), &info); err != nil {
+					log.Printf("Failed to unmarshal instance info: %v", err)
+					continue
+				}
 
-			go func() {
-				watcher, err := gamemodeInstancesKV.WatchAll(ctx)
-				if err != nil {
+				log.Printf("Parsed pod info for %s: %+v", podName, info)
+
+				if err := p.registerPodByName(podName, info); err != nil {
 					log.Fatal(err)
 				}
 
-				for key := range watcher.Updates() {
-					if key == nil {
-						log.Printf("Replayed keys for all instances of gamemode %s", gamemodeName)
-						continue
-					}
+			case jetstream.KeyValueDelete:
+				log.Printf("Deleted pod info for %s", podName)
 
-					podName := key.Key()
-
-					log.Printf("Pod %s added to gamemode %s", podName, gamemodeName)
-
-					if err := p.registerPodByName(gamemodeName, podName); err != nil {
-						log.Fatal(err)
+				if s := p.prx.Server(podName); s != nil {
+					if p.prx.Unregister(s.ServerInfo()) {
+						log.Printf("Unregistered server %s", podName)
 					}
 				}
-			}()
+
+				continue
+			}
 		}
 	}()
 
