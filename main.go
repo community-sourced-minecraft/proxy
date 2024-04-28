@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log"
 
 	"github.com/Community-Sourced-Minecraft/Gate-Proxy/internal/hosting"
@@ -17,12 +18,12 @@ import (
 type PluginCreator = func(h *hosting.Hosting) (proxy.Plugin, error)
 
 func main() {
-	permissionsFile, err := permissions.ReadFile("permissions.json")
+	h, err := hosting.Init()
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	h, err := hosting.Init()
+	permissionsFile, err := permissions.NewNATSPermissions(context.Background(), h)
 	if err != nil {
 		log.Fatal(err)
 	}

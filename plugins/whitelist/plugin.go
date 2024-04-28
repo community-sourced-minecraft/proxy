@@ -30,11 +30,11 @@ type Whitelist interface {
 
 type WhitelistPlugin struct {
 	whitelist   Whitelist
-	permissions *permissions.FPermission
+	permissions permissions.Permissions
 	h           *hosting.Hosting
 }
 
-func NewPlugin(h *hosting.Hosting, permissions *permissions.FPermission) (*WhitelistPlugin, error) {
+func NewPlugin(h *hosting.Hosting, permissions permissions.Permissions) (*WhitelistPlugin, error) {
 	whitelist, err := NewNATSWhitelist(context.Background(), h)
 	if err != nil {
 		return nil, err
@@ -77,7 +77,7 @@ func (p *WhitelistPlugin) onPostConnectEvent(e *proxy.ServerPostConnectEvent) {
 	}
 }
 
-func New(h *hosting.Hosting, permissions *permissions.FPermission) (proxy.Plugin, error) {
+func New(h *hosting.Hosting, permissions permissions.Permissions) (proxy.Plugin, error) {
 	return proxy.Plugin{
 		Name: "Whitelist",
 		Init: func(ctx context.Context, px *proxy.Proxy) error {

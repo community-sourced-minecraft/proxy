@@ -1,6 +1,7 @@
 package permissions
 
 import (
+	"context"
 	"encoding/json"
 	"log"
 	"os"
@@ -17,7 +18,9 @@ type PermissionFile struct {
 	Groups map[string]PermissionGroup `json:"groups"`
 }
 
-type FPermission struct {
+var _ Permissions = &FSPermissions{}
+
+type FSPermissions struct {
 	name string
 	file PermissionFile
 	m    sync.RWMutex
@@ -34,8 +37,8 @@ type PermissionGroup struct {
 	Permissions []string `json:"permissions"`
 }
 
-func ReadFile(file string) (*FPermission, error) {
-	w := &FPermission{
+func ReadFile(file string) (*FSPermissions, error) {
+	w := &FSPermissions{
 		name: file,
 		file: PermissionFile{
 			Users:  make(map[string]PermissionUser),
@@ -43,18 +46,18 @@ func ReadFile(file string) (*FPermission, error) {
 		},
 	}
 
-	if err := w.Reload(); err != nil {
+	if err := w.Reload(context.Background()); err != nil {
 		return nil, err
 	}
 
 	return w, nil
 }
 
-func (w *FPermission) Reload() error {
+func (w *FSPermissions) Reload(ctx context.Context) error {
 	fd, err := os.OpenFile(w.name, os.O_RDONLY, 0755)
 	if err != nil {
 		if os.IsNotExist(err) {
-			// Save the default whitelist file
+			// Save the default permissions file
 			return w.Save()
 		}
 
@@ -71,7 +74,7 @@ func (w *FPermission) Reload() error {
 	return nil
 }
 
-func (w *FPermission) Save() error {
+func (w *FSPermissions) Save() error {
 	fd, err := os.OpenFile(w.name, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0755)
 	if err != nil {
 		return err
@@ -87,24 +90,20 @@ func (w *FPermission) Save() error {
 	return nil
 }
 
-func (p *FPermission) GetGroups() []string {
+func (p *FSPermissions) GetGroup(name string) (PermissionGroup, bool) {
+	group, exists := p.file.Groups[name]
+	return group, exists
+}
+
+func (p *FSPermissions) GroupNames() []string {
 	return util.MapKeys(p.file.Groups)
 }
 
-func (p *FPermission) GetUsers() []string {
+func (p *FSPermissions) GetUsers() []string {
 	return util.MapKeys(p.file.Users)
 }
 
-func (p *FPermission) GroupPermissions(name string) ([]string, bool) {
-	group, ok := p.file.Groups[name]
-	if !ok {
-		return make([]string, 0), false
-	}
-
-	return group.Permissions, true
-}
-
-func (p *FPermission) UserPermissions(name string) ([]string, bool) {
+func (p *FSPermissions) UserPermissions(name string) ([]string, bool) {
 	user, ok := p.file.Users[name]
 	if !ok {
 		return make([]string, 0), false
@@ -113,7 +112,7 @@ func (p *FPermission) UserPermissions(name string) ([]string, bool) {
 	return user.Permissions, true
 }
 
-func (p *FPermission) UserGroups(name string) ([]string, bool) {
+func (p *FSPermissions) UserGroups(name string) ([]string, bool) {
 	user, ok := p.file.Users[name]
 	if !ok {
 		return make([]string, 0), false
@@ -122,14 +121,14 @@ func (p *FPermission) UserGroups(name string) ([]string, bool) {
 	return user.Groups, true
 }
 
-func (p *FPermission) GroupHasPermission(name string, permission string) bool {
-	perms, exists := p.GroupPermissions(name)
+func (p *FSPermissions) GroupHasPermission(name string, permission string) bool {
+	group, exists := p.GetGroup(name)
 	if !exists {
 		log.Printf("WARN: Group %s does not exist", name)
 		return false
 	}
 
-	for _, _permission := range perms {
+	for _, _permission := range group.Permissions {
 		if _permission == permission {
 			return true
 		}
@@ -142,7 +141,7 @@ func (p *FPermission) GroupHasPermission(name string, permission string) bool {
 	return false
 }
 
-func (p *FPermission) UserHasPermission(player string, permission string) bool {
+func (p *FSPermissions) UserHasPermission(player string, permission string) bool {
 	player = uuid.Normalize(player)
 
 	user, ok := p.file.Users[player]
@@ -170,7 +169,7 @@ func (p *FPermission) UserHasPermission(player string, permission string) bool {
 	return false
 }
 
-func (p *FPermission) UserAddPermission(UUID string, permission string) error {
+func (p *FSPermissions) UserAddPermission(_ctx context.Context, UUID string, permission string) error {
 	p.m.Lock()
 	UUID = uuid.Normalize(UUID)
 	user := p.file.Users[UUID]
@@ -180,7 +179,7 @@ func (p *FPermission) UserAddPermission(UUID string, permission string) error {
 	return p.Save()
 }
 
-func (p *FPermission) GroupAddPermission(name string, permission string) error {
+func (p *FSPermissions) GroupAddPermission(_ctx context.Context, name string, permission string) error {
 	p.m.Lock()
 	group := p.file.Groups[name]
 	group.Permissions = append(group.Permissions, permission)
@@ -190,7 +189,7 @@ func (p *FPermission) GroupAddPermission(name string, permission string) error {
 	return p.Save()
 }
 
-func (p *FPermission) UserRemovePermission(UUID string, permission string) error {
+func (p *FSPermissions) UserRemovePermission(_ctx context.Context, UUID string, permission string) error {
 	p.m.Lock()
 	UUID = uuid.Normalize(UUID)
 	user := p.file.Users[UUID]
@@ -205,7 +204,7 @@ func (p *FPermission) UserRemovePermission(UUID string, permission string) error
 	return p.Save()
 }
 
-func (p *FPermission) GroupRemovePermission(name string, permission string) error {
+func (p *FSPermissions) GroupRemovePermission(_ctx context.Context, name string, permission string) error {
 	p.m.Lock()
 	group := p.file.Groups[name]
 

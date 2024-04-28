@@ -13,24 +13,32 @@ import (
 	"go.minekube.com/gate/pkg/edition/java/proxy"
 )
 
-type PermissionsPlugin struct {
-	prx         *proxy.Proxy
-	permissions *FPermission
+type Permissions interface {
+	Reload(ctx context.Context) error
+
+	UserPermissions(UUID string) ([]string, bool)
+	UserGroups(UUID string) ([]string, bool)
+	UserHasPermission(UUID, permission string) bool
+	UserAddPermission(ctx context.Context, UUID, permission string) error
+	UserRemovePermission(ctx context.Context, UUID, permission string) error
+
+	GroupNames() []string
+	GetGroup(group string) (PermissionGroup, bool)
+	GroupHasPermission(group, permission string) bool
+	GroupAddPermission(ctx context.Context, group, permission string) error
+	GroupRemovePermission(ctx context.Context, group, permission string) error
 }
 
-func NewPlugin(prx *proxy.Proxy, permissions *FPermission) (*PermissionsPlugin, error) {
+type PermissionsPlugin struct {
+	prx         *proxy.Proxy
+	permissions Permissions
+}
+
+func NewPlugin(prx *proxy.Proxy, permissions Permissions) (*PermissionsPlugin, error) {
 	return &PermissionsPlugin{
 		prx:         prx,
 		permissions: permissions,
 	}, nil
-}
-
-func (p *PermissionsPlugin) Reload() error {
-	if err := p.permissions.Reload(); err != nil {
-		return err
-	}
-
-	return nil
 }
 
 func (p *PermissionsPlugin) Init() error {
@@ -43,7 +51,15 @@ func (p *PermissionsPlugin) Init() error {
 	return nil
 }
 
-func New(permissions *FPermission) (proxy.Plugin, error) {
+func (p *PermissionsPlugin) Reload() error {
+	if err := p.permissions.Reload(context.Background()); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func New(permissions Permissions) (proxy.Plugin, error) {
 	return proxy.Plugin{
 		Name: "Permissions",
 		Init: func(ctx context.Context, prx *proxy.Proxy) error {
@@ -71,9 +87,9 @@ func (p *PermissionsPlugin) command() brigodier.LiteralNodeBuilder {
 					return b.Build()
 				})).
 				Then(brigodier.Literal("info").
-					Executes(p.InfoCommand(User))).
-				Then(brigodier.Literal("remove").Then(brigodier.Argument("permission", brigodier.String).Executes(p.removeCommand(User)))).
-				Then(brigodier.Literal("add").Then(brigodier.Argument("permission", brigodier.String).Executes(p.addCommand(User)))),
+					Executes(p.InfoCommand(PermissionTypeUser))).
+				Then(brigodier.Literal("remove").Then(brigodier.Argument("permission", brigodier.String).Executes(p.removeCommand(PermissionTypeUser)))).
+				Then(brigodier.Literal("add").Then(brigodier.Argument("permission", brigodier.String).Executes(p.addCommand(PermissionTypeUser)))),
 			),
 		).
 		Then(brigodier.
@@ -82,10 +98,10 @@ func (p *PermissionsPlugin) command() brigodier.LiteralNodeBuilder {
 				Argument("name", brigodier.String).
 				Then(brigodier.
 					Literal("info").
-					Executes(p.InfoCommand(Group)),
+					Executes(p.InfoCommand(PermissionTypeGroup)),
 				).
-				Then(brigodier.Literal("remove").Then(brigodier.Argument("permission", brigodier.String).Executes(p.removeCommand(Group)))).
-				Then(brigodier.Literal("add").Then(brigodier.Argument("permission", brigodier.String).Executes(p.addCommand(Group)))),
+				Then(brigodier.Literal("remove").Then(brigodier.Argument("permission", brigodier.String).Executes(p.removeCommand(PermissionTypeGroup)))).
+				Then(brigodier.Literal("add").Then(brigodier.Argument("permission", brigodier.String).Executes(p.addCommand(PermissionTypeGroup)))),
 			).
 			Executes(p.helpCommand())).
 		Then(brigodier.
@@ -97,8 +113,8 @@ func (p *PermissionsPlugin) command() brigodier.LiteralNodeBuilder {
 type PermissionListType string
 
 const (
-	User  PermissionListType = "User"
-	Group PermissionListType = "Group"
+	PermissionTypeUser  PermissionListType = "User"
+	PermissionTypeGroup PermissionListType = "Group"
 )
 
 func (p *PermissionsPlugin) InfoCommand(_type PermissionListType) brigodier.Command {
@@ -109,7 +125,7 @@ func (p *PermissionsPlugin) InfoCommand(_type PermissionListType) brigodier.Comm
 		name := c.String("name")
 
 		switch _type {
-		case User:
+		case PermissionTypeUser:
 			UUID, err := uuid.UsernameToUUID(name)
 			if err != nil {
 				return c.SendMessage(&component.Text{
@@ -131,8 +147,6 @@ func (p *PermissionsPlugin) InfoCommand(_type PermissionListType) brigodier.Comm
 			groups, ok := p.permissions.UserGroups(UUID)
 
 			if ok {
-				// groupsMsg = append(groupsMsg, &component.Text{Content: "\n"})
-
 				for _, group := range groups {
 					groupsMsg = append(groupsMsg, &component.Text{Content: "\n > ", S: component.Style{Color: color.Yellow}}, &component.Text{Content: group, S: component.Style{Color: color.White}})
 				}
@@ -160,9 +174,8 @@ func (p *PermissionsPlugin) InfoCommand(_type PermissionListType) brigodier.Comm
 					&component.Text{Extra: permissionMsg},
 				},
 			})
-		case Group:
-			permissionList, exists := p.permissions.GroupPermissions(name)
-			group := p.permissions.file.Groups[name]
+		case PermissionTypeGroup:
+			group, exists := p.permissions.GetGroup(name)
 			if !exists {
 				log.Printf("WARN: Group %s doesn't exist", name)
 				return c.SendMessage(&component.Text{
@@ -183,7 +196,7 @@ func (p *PermissionsPlugin) InfoCommand(_type PermissionListType) brigodier.Comm
 			if len(permissionMsg) != 0 {
 				permissionMsg = []component.Component{&component.Text{Content: "\nPermissions: ", S: component.Style{Color: color.Yellow}}}
 
-				for _, permission := range permissionList {
+				for _, permission := range group.Permissions {
 					permissionMsg = append(permissionMsg, &component.Text{Content: "\n > ", S: component.Style{Color: color.Yellow}}, &component.Text{Content: permission, S: component.Style{Color: color.White}})
 				}
 			}
@@ -247,7 +260,7 @@ func (p *PermissionsPlugin) addCommand(_type PermissionListType) brigodier.Comma
 		}
 
 		switch _type {
-		case User:
+		case PermissionTypeUser:
 			UUID, err := uuid.UsernameToUUID(name)
 			if err != nil {
 				return err
@@ -259,14 +272,14 @@ func (p *PermissionsPlugin) addCommand(_type PermissionListType) brigodier.Comma
 				return c.SendMessage(errorMsg)
 			}
 
-			p.permissions.UserAddPermission(UUID, permission)
-		case Group:
+			p.permissions.UserAddPermission(c.Context, UUID, permission)
+		case PermissionTypeGroup:
 			res := p.permissions.GroupHasPermission(name, permission)
 			if res {
 				return c.SendMessage(errorMsg)
 			}
 
-			p.permissions.GroupAddPermission(name, permission)
+			p.permissions.GroupAddPermission(c.Context, name, permission)
 		}
 
 		return c.SendMessage(&component.Text{
@@ -301,7 +314,7 @@ func (p *PermissionsPlugin) removeCommand(_type PermissionListType) brigodier.Co
 		}
 
 		switch _type {
-		case User:
+		case PermissionTypeUser:
 			UUID, err := uuid.UsernameToUUID(name)
 			if err != nil {
 				return err
@@ -313,14 +326,14 @@ func (p *PermissionsPlugin) removeCommand(_type PermissionListType) brigodier.Co
 				return c.SendMessage(errorMsg)
 			}
 
-			p.permissions.UserRemovePermission(UUID, permission)
-		case Group:
+			p.permissions.UserRemovePermission(c.Context, UUID, permission)
+		case PermissionTypeGroup:
 			res := p.permissions.GroupHasPermission(name, permission)
 			if !res {
 				return c.SendMessage(errorMsg)
 			}
 
-			p.permissions.GroupRemovePermission(name, permission)
+			p.permissions.GroupRemovePermission(c.Context, name, permission)
 		}
 
 		return c.SendMessage(&component.Text{
@@ -340,7 +353,7 @@ func (p *PermissionsPlugin) reloadCommand() brigodier.Command {
 		if !p.permissions.UserHasPermission(c.Source.(proxy.Player).ID().String(), "permissions.reload") {
 			return PermissionMissingCommand().Run(c.CommandContext)
 		}
-		if err := p.permissions.Reload(); err != nil {
+		if err := p.permissions.Reload(c.Context); err != nil {
 			return err
 		}
 
