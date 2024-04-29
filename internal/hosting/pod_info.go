@@ -19,7 +19,7 @@ func ParsePodInfo() *PodInfo {
 	}
 }
 
-func (p PodInfo) RPCBaseSubject() string {
+func (p PodInfo) RPCNetworkSubject() string {
 	return fmt.Sprintf("csmc.%s.%s", p.PodNamespace, p.Network)
 }
 

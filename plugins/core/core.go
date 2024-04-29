@@ -115,7 +115,7 @@ func (p *CorePlugin) Init(ctx context.Context) error {
 			return err
 		}
 
-		sub, err := p.h.NATS().Subscribe(p.h.Info.RPCBaseSubject()+".transfers", func(msg *nats.Msg) {
+		sub, err := p.h.NATS().Subscribe(p.h.Info.RPCNetworkSubject(), func(msg *nats.Msg) {
 			log.Printf("Received raw request on transfers queue: %s", string(msg.Data))
 
 			payload := &rpc.Request{}
