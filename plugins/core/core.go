@@ -3,14 +3,18 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
+	"math/rand"
 	"net"
 	"strings"
+	"time"
 
 	"github.com/Community-Sourced-Minecraft/Gate-Proxy/internal/hosting"
 	"github.com/Community-Sourced-Minecraft/Gate-Proxy/internal/hosting/rpc"
 	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
 	"github.com/robinbraemer/event"
 	"go.minekube.com/brigodier"
 	"go.minekube.com/common/minecraft/color"
@@ -20,15 +24,29 @@ import (
 )
 
 type CorePlugin struct {
-	proxy *proxy.Proxy
-	h     *hosting.Hosting
+	prx         *proxy.Proxy
+	h           *hosting.Hosting
+	rnd         *rand.Rand
+	instancesKV jetstream.KeyValue
 }
 
 func New(h *hosting.Hosting) (proxy.Plugin, error) {
 	return proxy.Plugin{
 		Name: "Core",
 		Init: func(ctx context.Context, prx *proxy.Proxy) error {
-			p := &CorePlugin{proxy: prx, h: h}
+			rnd := rand.New(rand.NewSource(time.Now().Unix()))
+
+			instancesKV, err := h.JetStream().CreateKeyValue(ctx, jetstream.KeyValueConfig{Bucket: h.Info.KVInstancesKey()})
+			if errors.Is(err, jetstream.ErrBucketExists) {
+				instancesKV, err = h.JetStream().KeyValue(ctx, h.Info.KVInstancesKey())
+				if err != nil {
+					return err
+				}
+			} else if err != nil {
+				return err
+			}
+
+			p := &CorePlugin{prx: prx, h: h, rnd: rnd, instancesKV: instancesKV}
 
 			return p.Init(ctx)
 		},
@@ -41,27 +59,20 @@ func (p *CorePlugin) registerPodByName(podName string, info hosting.InstanceInfo
 		return err
 	}
 
-	if s := p.proxy.Server(podName); s != nil {
-		if p.proxy.Unregister(s.ServerInfo()) {
+	if s := p.prx.Server(podName); s != nil {
+		if p.prx.Unregister(s.ServerInfo()) {
 			log.Printf("Unregistered server %s", podName)
 		}
 	}
 
-	_, err = p.proxy.Register(proxy.NewServerInfo(podName, ip))
+	_, err = p.prx.Register(proxy.NewServerInfo(podName, ip))
 
 	return err
 }
 
 func (p *CorePlugin) Init(ctx context.Context) error {
-	bucket := p.h.Info.KVInstancesKey()
-	gamemodesKV, err := p.h.JetStream().KeyValue(ctx, bucket)
-	if err != nil {
-		return err
-	}
-	log.Printf("Watching %s", bucket)
-
 	go func() {
-		watcher, err := gamemodesKV.WatchAll(ctx)
+		watcher, err := p.instancesKV.WatchAll(ctx)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -138,7 +149,7 @@ func (p *CorePlugin) Init(ctx context.Context) error {
 			}
 			log.Printf("Transfer player request: %v", req)
 
-			player := p.proxy.Player(req.UUID)
+			player := p.prx.Player(req.UUID)
 			if player == nil {
 				log.Printf("Player %s not found", req.UUID)
 				msg.Nak()
@@ -146,7 +157,7 @@ func (p *CorePlugin) Init(ctx context.Context) error {
 			}
 
 			var newServer proxy.RegisteredServer
-			for _, s := range p.proxy.Servers() {
+			for _, s := range p.prx.Servers() {
 				sName := s.ServerInfo().Name()
 
 				if sName == req.Destination {
@@ -226,7 +237,7 @@ func (p *CorePlugin) Init(ctx context.Context) error {
 		log.Printf("Subscribed to %v", sub.Subject)
 	}
 
-	p.proxy.Command().Register(brigodier.Literal("ping").
+	p.prx.Command().Register(brigodier.Literal("ping").
 		Executes(command.Command(func(c *command.Context) error {
 			player, ok := c.Source.(proxy.Player)
 			if !ok {
@@ -240,15 +251,22 @@ func (p *CorePlugin) Init(ctx context.Context) error {
 		})),
 	)
 
-	event.Subscribe(p.proxy.Event(), 0, p.onServerSwitch)
-	event.Subscribe(p.proxy.Event(), 0, p.onChooseServer)
+	event.Subscribe(p.prx.Event(), 0, p.onServerSwitch)
+	event.Subscribe(p.prx.Event(), 0, p.onChooseServer)
 
 	return nil
 }
 
 func (p *CorePlugin) onChooseServer(e *proxy.PlayerChooseInitialServerEvent) {
-	// TODO: Get initial server from NATS
-	e.SetInitialServer(p.proxy.Server("lobby-0"))
+	servers, err := p.getServersOfGamemode(e.Player().Context(), "lobby")
+	if err != nil {
+		log.Printf("Failed to get servers of gamemode lobby: %v", err)
+		// Fallback to default
+		e.SetInitialServer(p.prx.Server("lobby-0"))
+		return
+	}
+
+	e.SetInitialServer(servers[p.rnd.Intn(len(servers))])
 }
 
 func (p *CorePlugin) onServerSwitch(e *proxy.ServerPostConnectEvent) {
@@ -267,4 +285,39 @@ func (p *CorePlugin) onServerSwitch(e *proxy.ServerPostConnectEvent) {
 			&Text{Content: "."},
 		},
 	})
+}
+
+func (p *CorePlugin) getServersOfGamemode(ctx context.Context, gamemode string) ([]proxy.RegisteredServer, error) {
+	list, err := p.instancesKV.ListKeys(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	var servers []proxy.RegisteredServer
+	for key := range list.Keys() {
+		v, err := p.instancesKV.Get(ctx, key)
+		if err != nil {
+			return nil, err
+		}
+
+		info := hosting.InstanceInfo{}
+		if err := json.Unmarshal(v.Value(), &info); err != nil {
+			log.Printf("Failed to unmarshal instance info: %v", err)
+			continue
+		}
+
+		if info.Gamemode != gamemode {
+			continue
+		}
+
+		s := p.prx.Server(key)
+		if s == nil {
+			log.Printf("Server %s not found in registry", key)
+			continue
+		}
+
+		servers = append(servers, s)
+	}
+
+	return servers, nil
 }
