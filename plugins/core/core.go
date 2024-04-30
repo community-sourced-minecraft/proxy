@@ -54,7 +54,7 @@ func New(h *hosting.Hosting) (proxy.Plugin, error) {
 }
 
 func (p *CorePlugin) registerPodByName(podName string, info hosting.InstanceInfo) error {
-	ip, err := net.ResolveTCPAddr("tcp4", info.Address+":25565")
+	ip, err := net.ResolveTCPAddr("tcp4", fmt.Sprintf("%s:%d", info.Address, info.Port))
 	if err != nil {
 		return err
 	}
