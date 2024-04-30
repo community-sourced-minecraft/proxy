@@ -2,6 +2,7 @@ package hosting
 
 import (
 	"fmt"
+	"log"
 	"os"
 )
 
@@ -12,11 +13,28 @@ type PodInfo struct {
 }
 
 func ParsePodInfo() *PodInfo {
-	return &PodInfo{
+	info := &PodInfo{
 		Network:      os.Getenv("CSMC_NETWORK"),
 		PodName:      os.Getenv("POD_NAME"),
 		PodNamespace: os.Getenv("POD_NAMESPACE"),
 	}
+
+	if info.Network == "" {
+		log.Printf("WARN: CSMC_NETWORK is not set, using default network")
+		info.Network = "default"
+	}
+
+	if info.PodName == "" {
+		log.Printf("WARN: POD_NAME is not set, using proxy-0")
+		info.PodName = "proxy-0"
+	}
+
+	if info.PodNamespace == "" {
+		log.Printf("WARN: POD_NAMESPACE is not set, using default")
+		info.PodNamespace = "default"
+	}
+
+	return info
 }
 
 func (p PodInfo) RPCNetworkSubject() string {

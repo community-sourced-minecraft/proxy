@@ -1,0 +1,4 @@
+config:
+  forwarding:
+    mode: velocity
+    velocitySecret: csmc

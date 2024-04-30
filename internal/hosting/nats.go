@@ -12,6 +12,9 @@ import (
 
 func connectToNATS() (*nats.Conn, jetstream.JetStream, error) {
 	natsUrl := os.Getenv("NATS_URL")
+	if natsUrl == "" {
+		natsUrl = nats.DefaultURL
+	}
 
 	nc, err := nats.Connect(natsUrl)
 	if err != nil {
