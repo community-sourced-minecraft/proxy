@@ -39,7 +39,7 @@ func (p *Plugin) onPingEvent() func(e *proxy.PingEvent) {
 			Extra: []Component{
 				&Text{Content: "  ᴄѕᴍᴄ ", S: Style{Color: color.Green, Bold: True}},
 				&Text{Content: "-", S: Style{Color: color.Gray, Bold: True}},
-				&Text{Content: " ᴄʟᴏѕᴇᴅ ʙᴇᴛᴀ\n", S: Style{Color: color.Red, Bold: True}},
+				&Text{Content: " " + util.Latinize("open beta") + "\n", S: Style{Color: color.Yellow, Bold: True}},
 				&Text{Content: "  ɪɴᴅᴇᴠ ᴠᴇʀѕɪᴏɴ - ", S: Style{Color: color.LightPurple, Bold: True}},
 				&Text{Content: util.Latinize(p.h.Info.PodName), S: Style{Color: color.LightPurple, Bold: True}},
 			},
