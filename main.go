@@ -5,6 +5,7 @@ import (
 	"log"
 
 	"github.com/Community-Sourced-Minecraft/Gate-Proxy/internal/hosting"
+	"github.com/Community-Sourced-Minecraft/Gate-Proxy/plugins/bossbar"
 	"github.com/Community-Sourced-Minecraft/Gate-Proxy/plugins/core"
 	"github.com/Community-Sourced-Minecraft/Gate-Proxy/plugins/motd"
 	"github.com/Community-Sourced-Minecraft/Gate-Proxy/plugins/permissions"
@@ -43,6 +44,7 @@ func main() {
 
 	proxy.Plugins = append(proxy.Plugins,
 		tab.Plugin,
+		bossbar.Plugin,
 	)
 
 	for _, create := range plugins {

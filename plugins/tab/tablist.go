@@ -3,10 +3,10 @@ package tab
 import (
 	"context"
 
-	"github.com/Community-Sourced-Minecraft/Gate-Proxy/lib/mini"
 	"github.com/robinbraemer/event"
 	"go.minekube.com/common/minecraft/color"
 	c "go.minekube.com/common/minecraft/component"
+	"go.minekube.com/common/minecraft/key"
 	"go.minekube.com/gate/pkg/edition/java/proxy"
 )
 
@@ -28,8 +28,13 @@ func onPostLogin(e *proxy.ServerPostConnectEvent) {
 	header := &c.Text{
 		S: c.Style{Bold: c.True},
 		Extra: []c.Component{
-			&c.Text{Content: "\nᴡᴇʟᴄᴏᴍᴇ ᴛᴏ ", S: c.Style{Color: *&color.HexInt(0x926dd1).Named().RGB}},
-			mini.Gradient("ᴄѕᴍᴄ\n", c.Style{Bold: c.True}, *color.HexInt(0x7b52e3), *color.HexInt(0xcd52e3)),
+			&c.Text{
+				Content: "0",
+				S:       c.Style{Font: key.New("csmc", "default")},
+			},
+			&c.Text{Content: "\n\n\n\n\n\n\n"},
+			// &c.Text{Content: "\nᴡᴇʟᴄᴏᴍᴇ ᴛᴏ ", S: c.Style{Color: *&color.HexInt(0x926dd1).Named().RGB}},
+			// mini.Gradient("ᴄѕᴍᴄ\n", c.Style{Bold: c.True}, *color.HexInt(0x7b52e3), *color.HexInt(0xcd52e3)),
 			&c.Text{Content: serverName + "\n", S: c.Style{Color: color.DarkGray}},
 		},
 	}
