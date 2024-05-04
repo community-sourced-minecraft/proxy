@@ -9,7 +9,18 @@ import (
 	"go.minekube.com/common/minecraft/component"
 	"go.minekube.com/gate/pkg/edition/java/bossbar"
 	"go.minekube.com/gate/pkg/edition/java/proxy"
+	"go.minekube.com/gate/pkg/util/uuid"
 )
+
+var resourcePackUUID = mustParseUUID("e54df95b-39f9-4ba5-95e8-e0b49cf9261a")
+
+func mustParseUUID(s string) uuid.UUID {
+	u, err := uuid.Parse(s)
+	if err != nil {
+		panic(err)
+	}
+	return u
+}
 
 var Plugin = proxy.Plugin{
 	Name: "Bossbar",
@@ -23,6 +34,7 @@ var Plugin = proxy.Plugin{
 func bossbarDisplay() func(*proxy.PostLoginEvent) {
 	return func(ple *proxy.PostLoginEvent) {
 		ple.Player().SendResourcePack(proxy.ResourcePackInfo{
+			ID:          resourcePackUUID,
 			URL:         "https://s3.devminer.xyz/csmc/csmc.zip",
 			ShouldForce: true,
 			Prompt: &component.Text{
