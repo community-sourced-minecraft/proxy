@@ -276,7 +276,16 @@ func (p *CorePlugin) onChooseServer(e *proxy.PlayerChooseInitialServerEvent) {
 		return
 	}
 
-	e.SetInitialServer(servers[p.rnd.Intn(len(servers))])
+	availableServers := len(servers)
+	if availableServers == 0 {
+		log.Printf("No servers available for player %s", e.Player().ID())
+		return
+	}
+
+	server := servers[p.rnd.Intn(availableServers)]
+	log.Printf("Chose server %s for player %s", server.ServerInfo().Name(), e.Player().ID())
+
+	e.SetInitialServer(server)
 }
 
 func (p *CorePlugin) onServerSwitch(e *proxy.ServerPostConnectEvent) {
