@@ -10,9 +10,9 @@ import (
 	"sync"
 
 	"github.com/Community-Sourced-Minecraft/Gate-Proxy/internal/hosting"
+	"github.com/Community-Sourced-Minecraft/Gate-Proxy/internal/hosting/kv"
 	"github.com/Community-Sourced-Minecraft/Gate-Proxy/lib/util"
 	"github.com/Community-Sourced-Minecraft/Gate-Proxy/lib/util/uuid"
-	"github.com/nats-io/nats.go/jetstream"
 )
 
 var _ Permissions = &NATSPermissions{}
@@ -22,13 +22,11 @@ type NATSPermissions struct {
 	Groups map[string]PermissionGroup
 	m      sync.RWMutex
 	h      *hosting.Hosting
-	kv     jetstream.KeyValue
+	kv     kv.Bucket
 }
 
 func NewNATSPermissions(ctx context.Context, h *hosting.Hosting) (*NATSPermissions, error) {
-	kv, err := h.JetStream().CreateKeyValue(ctx, jetstream.KeyValueConfig{
-		Bucket: h.Info.KVNetworkKey() + "_permissions",
-	})
+	kv, err := h.KV().Bucket(ctx, h.Info.KVNetworkKey()+"_permissions")
 	if err != nil {
 		return nil, err
 	}
@@ -46,18 +44,18 @@ func NewNATSPermissions(ctx context.Context, h *hosting.Hosting) (*NATSPermissio
 	}
 
 	go func() {
-		for key := range watcher.Updates() {
+		for key := range watcher.Changes() {
 			if key == nil {
 				continue
 			}
 
-			switch key.Key() {
+			switch key.Key {
 			case "users":
-				log.Printf("Users key changed: %s", key.Value())
+				log.Printf("Users key changed: %s", key.Value)
 
 				w.m.Lock()
 
-				if err := json.Unmarshal(key.Value(), &w.Users); err != nil {
+				if err := json.Unmarshal(key.Value, &w.Users); err != nil {
 					w.m.Unlock()
 					log.Printf("Failed to unmarshal users key: %v", err)
 				}
@@ -65,11 +63,11 @@ func NewNATSPermissions(ctx context.Context, h *hosting.Hosting) (*NATSPermissio
 				w.m.Unlock()
 
 			case "groups":
-				log.Printf("Groups key changed: %s", key.Value())
+				log.Printf("Groups key changed: %s", key.Value)
 
 				w.m.Lock()
 
-				if err := json.Unmarshal(key.Value(), &w.Groups); err != nil {
+				if err := json.Unmarshal(key.Value, &w.Groups); err != nil {
 					w.m.Unlock()
 					log.Printf("Failed to unmarshal groups key: %v", err)
 				}
@@ -86,13 +84,13 @@ func (w *NATSPermissions) Reload(ctx context.Context) error {
 	w.m.Lock()
 	defer w.m.Unlock()
 
-	if err := hosting.GetKeyFromKV(ctx, w.kv, "users", &w.Users); errors.Is(errors.Unwrap(err), jetstream.ErrKeyNotFound) {
+	if err := hosting.GetKeyFromKV(ctx, w.kv, "users", &w.Users); errors.Is(errors.Unwrap(err), kv.ErrKeyNotFound) {
 		w.Users = make(map[string]PermissionUser)
 	} else if err != nil {
 		return err
 	}
 
-	if err := hosting.GetKeyFromKV(ctx, w.kv, "groups", &w.Groups); errors.Is(errors.Unwrap(err), jetstream.ErrKeyNotFound) {
+	if err := hosting.GetKeyFromKV(ctx, w.kv, "groups", &w.Groups); errors.Is(errors.Unwrap(err), kv.ErrKeyNotFound) {
 		w.Groups = make(map[string]PermissionGroup)
 	} else if err != nil {
 		return err

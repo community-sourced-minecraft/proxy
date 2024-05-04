@@ -3,14 +3,13 @@ package fallback
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log"
 	"math/rand"
 	"time"
 
 	"github.com/Community-Sourced-Minecraft/Gate-Proxy/internal/hosting"
-	"github.com/nats-io/nats.go/jetstream"
+	"github.com/Community-Sourced-Minecraft/Gate-Proxy/internal/hosting/kv"
 	"github.com/robinbraemer/event"
 	"go.minekube.com/common/minecraft/color"
 	. "go.minekube.com/common/minecraft/component"
@@ -21,7 +20,7 @@ type FallbackPlugin struct {
 	prx         *proxy.Proxy
 	h           *hosting.Hosting
 	rnd         *rand.Rand
-	instancesKV jetstream.KeyValue
+	instancesKV kv.Bucket
 }
 
 func New(h *hosting.Hosting) (proxy.Plugin, error) {
@@ -30,13 +29,8 @@ func New(h *hosting.Hosting) (proxy.Plugin, error) {
 		Init: func(ctx context.Context, prx *proxy.Proxy) error {
 			rnd := rand.New(rand.NewSource(time.Now().Unix()))
 
-			instancesKV, err := h.JetStream().CreateKeyValue(ctx, jetstream.KeyValueConfig{Bucket: h.Info.KVInstancesKey()})
-			if errors.Is(err, jetstream.ErrBucketExists) {
-				instancesKV, err = h.JetStream().KeyValue(ctx, h.Info.KVInstancesKey())
-				if err != nil {
-					return err
-				}
-			} else if err != nil {
+			instancesKV, err := h.KV().Bucket(ctx, h.Info.KVInstancesKey())
+			if err != nil {
 				return err
 			}
 
@@ -89,20 +83,20 @@ func (p *FallbackPlugin) onServerDisconnect(e *proxy.KickedFromServerEvent) {
 }
 
 func (p *FallbackPlugin) GetServersOfGamemode(ctx context.Context, gamemode string) ([]proxy.RegisteredServer, error) {
-	list, err := p.instancesKV.ListKeys(ctx)
+	keys, err := p.instancesKV.ListKeys(ctx)
 	if err != nil {
 		return nil, err
 	}
 
 	var servers []proxy.RegisteredServer
-	for key := range list.Keys() {
+	for _, key := range keys {
 		v, err := p.instancesKV.Get(ctx, key)
 		if err != nil {
 			return nil, err
 		}
 
 		info := hosting.InstanceInfo{}
-		if err := json.Unmarshal(v.Value(), &info); err != nil {
+		if err := json.Unmarshal(v, &info); err != nil {
 			log.Printf("Failed to unmarshal instance info: %v", err)
 			continue
 		}

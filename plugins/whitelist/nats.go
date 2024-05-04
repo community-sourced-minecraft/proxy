@@ -9,7 +9,7 @@ import (
 	"sync"
 
 	"github.com/Community-Sourced-Minecraft/Gate-Proxy/internal/hosting"
-	"github.com/nats-io/nats.go/jetstream"
+	"github.com/Community-Sourced-Minecraft/Gate-Proxy/internal/hosting/kv"
 )
 
 var _ Whitelist = &NATSWhitelist{}
@@ -19,13 +19,11 @@ type NATSWhitelist struct {
 	Whitelisted []string `json:"whitelisted"`
 	m           sync.RWMutex
 	h           *hosting.Hosting
-	kv          jetstream.KeyValue
+	kv          kv.Bucket
 }
 
 func NewNATSWhitelist(ctx context.Context, h *hosting.Hosting) (*NATSWhitelist, error) {
-	kv, err := h.JetStream().CreateKeyValue(ctx, jetstream.KeyValueConfig{
-		Bucket: h.Info.KVNetworkKey() + "_whitelist",
-	})
+	kv, err := h.KV().Bucket(ctx, h.Info.KVNetworkKey()+"_whitelist")
 	if err != nil {
 		return nil, err
 	}
@@ -43,18 +41,18 @@ func NewNATSWhitelist(ctx context.Context, h *hosting.Hosting) (*NATSWhitelist, 
 	}
 
 	go func() {
-		for key := range watcher.Updates() {
+		for key := range watcher.Changes() {
 			if key == nil {
 				continue
 			}
 
-			switch key.Key() {
+			switch key.Key {
 			case "enabled":
-				log.Printf("Enabled key changed: %s", key.Value())
+				log.Printf("Enabled key changed: %s", key.Value)
 
 				w.m.Lock()
 
-				if err := json.Unmarshal(key.Value(), &w.Enabled); err != nil {
+				if err := json.Unmarshal(key.Value, &w.Enabled); err != nil {
 					w.m.Unlock()
 					log.Printf("Failed to unmarshal enabled key: %v", err)
 				}
@@ -62,11 +60,11 @@ func NewNATSWhitelist(ctx context.Context, h *hosting.Hosting) (*NATSWhitelist, 
 				w.m.Unlock()
 
 			case "whitelisted":
-				log.Printf("Whitelisted key changed: %s", key.Value())
+				log.Printf("Whitelisted key changed: %s", key.Value)
 
 				w.m.Lock()
 
-				if err := json.Unmarshal(key.Value(), &w.Whitelisted); err != nil {
+				if err := json.Unmarshal(key.Value, &w.Whitelisted); err != nil {
 					w.m.Unlock()
 					log.Printf("Failed to unmarshal whitelisted key: %v", err)
 				}
@@ -83,13 +81,13 @@ func (w *NATSWhitelist) Reload() error {
 	w.m.Lock()
 	defer w.m.Unlock()
 
-	if err := hosting.GetKeyFromKV(context.Background(), w.kv, "enabled", &w.Enabled); errors.Is(errors.Unwrap(err), jetstream.ErrKeyNotFound) {
+	if err := hosting.GetKeyFromKV(context.Background(), w.kv, "enabled", &w.Enabled); errors.Is(errors.Unwrap(err), kv.ErrKeyNotFound) {
 		w.Enabled = false
 	} else {
 		return err
 	}
 
-	if err := hosting.GetKeyFromKV(context.Background(), w.kv, "whitelisted", &w.Whitelisted); errors.Is(errors.Unwrap(err), jetstream.ErrKeyNotFound) {
+	if err := hosting.GetKeyFromKV(context.Background(), w.kv, "whitelisted", &w.Whitelisted); errors.Is(errors.Unwrap(err), kv.ErrKeyNotFound) {
 		w.Whitelisted = make([]string, 0)
 	} else if err != nil {
 		return err

@@ -3,7 +3,6 @@ package core
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log"
 	"math/rand"
@@ -12,9 +11,9 @@ import (
 	"time"
 
 	"github.com/Community-Sourced-Minecraft/Gate-Proxy/internal/hosting"
+	"github.com/Community-Sourced-Minecraft/Gate-Proxy/internal/hosting/kv"
+	"github.com/Community-Sourced-Minecraft/Gate-Proxy/internal/hosting/messaging"
 	"github.com/Community-Sourced-Minecraft/Gate-Proxy/internal/hosting/rpc"
-	"github.com/nats-io/nats.go"
-	"github.com/nats-io/nats.go/jetstream"
 	"github.com/robinbraemer/event"
 	"go.minekube.com/brigodier"
 	"go.minekube.com/common/minecraft/color"
@@ -27,7 +26,7 @@ type CorePlugin struct {
 	prx         *proxy.Proxy
 	h           *hosting.Hosting
 	rnd         *rand.Rand
-	instancesKV jetstream.KeyValue
+	instancesKV kv.Bucket
 }
 
 func New(h *hosting.Hosting) (proxy.Plugin, error) {
@@ -36,13 +35,8 @@ func New(h *hosting.Hosting) (proxy.Plugin, error) {
 		Init: func(ctx context.Context, prx *proxy.Proxy) error {
 			rnd := rand.New(rand.NewSource(time.Now().Unix()))
 
-			instancesKV, err := h.JetStream().CreateKeyValue(ctx, jetstream.KeyValueConfig{Bucket: h.Info.KVInstancesKey()})
-			if errors.Is(err, jetstream.ErrBucketExists) {
-				instancesKV, err = h.JetStream().KeyValue(ctx, h.Info.KVInstancesKey())
-				if err != nil {
-					return err
-				}
-			} else if err != nil {
+			instancesKV, err := h.KV().Bucket(ctx, h.Info.KVInstancesKey())
+			if err != nil {
 				return err
 			}
 
@@ -77,18 +71,18 @@ func (p *CorePlugin) Init(ctx context.Context) error {
 			log.Fatal(err)
 		}
 
-		for key := range watcher.Updates() {
+		for key := range watcher.Changes() {
 			if key == nil {
 				log.Println("Replayed keys for all instances")
 				continue
 			}
 
-			podName := key.Key()
+			podName := key.Key
 
-			switch key.Operation() {
-			case jetstream.KeyValuePut:
+			switch key.Operation {
+			case kv.Put:
 				info := hosting.InstanceInfo{}
-				if err := json.Unmarshal(key.Value(), &info); err != nil {
+				if err := json.Unmarshal(key.Value, &info); err != nil {
 					log.Printf("Failed to unmarshal instance info: %v", err)
 					continue
 				}
@@ -99,7 +93,7 @@ func (p *CorePlugin) Init(ctx context.Context) error {
 					log.Fatal(err)
 				}
 
-			case jetstream.KeyValueDelete:
+			case kv.Delete:
 				log.Printf("Deleted pod info for %s", podName)
 
 				if s := p.prx.Server(podName); s != nil {
@@ -126,7 +120,7 @@ func (p *CorePlugin) Init(ctx context.Context) error {
 			return err
 		}
 
-		sub, err := p.h.NATS().Subscribe(p.h.Info.RPCNetworkSubject(), func(msg *nats.Msg) {
+		err = p.h.Messaging().Subscribe(p.h.Info.RPCNetworkSubject(), func(msg messaging.Message) {
 			log.Printf("Received raw request on transfers queue: %s", string(msg.Data))
 
 			payload := &rpc.Request{}
@@ -176,7 +170,7 @@ func (p *CorePlugin) Init(ctx context.Context) error {
 				return
 			}
 
-			c, err := player.CreateConnectionRequest(newServer).Connect(context.Background())
+			c, err := player.CreateConnectionRequest(newServer).Connect(msg.Context)
 			if err != nil {
 				log.Printf("Failed to connect player %s to server %s: %v", req.UUID, req.Destination, err)
 
@@ -233,8 +227,6 @@ func (p *CorePlugin) Init(ctx context.Context) error {
 			log.Printf("Failed to subscribe to transfers: %v", err)
 			return err
 		}
-
-		log.Printf("Subscribed to %v", sub.Subject)
 	}
 
 	p.prx.Command().Register(brigodier.Literal("ping").
@@ -297,20 +289,20 @@ func (p *CorePlugin) onServerSwitch(e *proxy.ServerPostConnectEvent) {
 }
 
 func (p *CorePlugin) GetServersOfGamemode(ctx context.Context, gamemode string) ([]proxy.RegisteredServer, error) {
-	list, err := p.instancesKV.ListKeys(ctx)
+	keys, err := p.instancesKV.ListKeys(ctx)
 	if err != nil {
 		return nil, err
 	}
 
 	var servers []proxy.RegisteredServer
-	for key := range list.Keys() {
+	for _, key := range keys {
 		v, err := p.instancesKV.Get(ctx, key)
 		if err != nil {
 			return nil, err
 		}
 
 		info := hosting.InstanceInfo{}
-		if err := json.Unmarshal(v.Value(), &info); err != nil {
+		if err := json.Unmarshal(v, &info); err != nil {
 			log.Printf("Failed to unmarshal instance info: %v", err)
 			continue
 		}
