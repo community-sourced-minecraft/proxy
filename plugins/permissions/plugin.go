@@ -13,28 +13,12 @@ import (
 	"go.minekube.com/gate/pkg/edition/java/proxy"
 )
 
-type Permissions interface {
-	Reload(ctx context.Context) error
-
-	UserPermissions(UUID string) ([]string, bool)
-	UserGroups(UUID string) ([]string, bool)
-	UserHasPermission(UUID, permission string) bool
-	UserAddPermission(ctx context.Context, UUID, permission string) error
-	UserRemovePermission(ctx context.Context, UUID, permission string) error
-
-	GroupNames() []string
-	GetGroup(group string) (PermissionGroup, bool)
-	GroupHasPermission(group, permission string) bool
-	GroupAddPermission(ctx context.Context, group, permission string) error
-	GroupRemovePermission(ctx context.Context, group, permission string) error
-}
-
 type PermissionsPlugin struct {
 	prx         *proxy.Proxy
-	permissions Permissions
+	permissions *Permissions
 }
 
-func NewPlugin(prx *proxy.Proxy, permissions Permissions) (*PermissionsPlugin, error) {
+func NewPlugin(prx *proxy.Proxy, permissions *Permissions) (*PermissionsPlugin, error) {
 	return &PermissionsPlugin{
 		prx:         prx,
 		permissions: permissions,
@@ -59,7 +43,7 @@ func (p *PermissionsPlugin) Reload() error {
 	return nil
 }
 
-func New(permissions Permissions) (proxy.Plugin, error) {
+func New(permissions *Permissions) (proxy.Plugin, error) {
 	return proxy.Plugin{
 		Name: "Permissions",
 		Init: func(ctx context.Context, prx *proxy.Proxy) error {

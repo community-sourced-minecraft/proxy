@@ -15,9 +15,18 @@ import (
 	"github.com/Community-Sourced-Minecraft/Gate-Proxy/lib/util/uuid"
 )
 
-var _ Permissions = &NATSPermissions{}
+type PermissionUser struct {
+	Groups      []string `json:"groups"`
+	Permissions []string `json:"permissions"`
+}
 
-type NATSPermissions struct {
+type PermissionGroup struct {
+	Prefix      string   `json:"prefix"`
+	Weight      uint8    `json:"weight"`
+	Permissions []string `json:"permissions"`
+}
+
+type Permissions struct {
 	Users  map[string]PermissionUser
 	Groups map[string]PermissionGroup
 	m      sync.RWMutex
@@ -25,13 +34,13 @@ type NATSPermissions struct {
 	kv     kv.Bucket
 }
 
-func NewNATSPermissions(ctx context.Context, h *hosting.Hosting) (*NATSPermissions, error) {
+func NewKVPermissions(ctx context.Context, h *hosting.Hosting) (*Permissions, error) {
 	kv, err := h.KV().Bucket(ctx, h.Info.KVNetworkKey()+"_permissions")
 	if err != nil {
 		return nil, err
 	}
 
-	w := &NATSPermissions{
+	w := &Permissions{
 		Users:  make(map[string]PermissionUser),
 		Groups: make(map[string]PermissionGroup),
 		h:      h,
@@ -80,7 +89,7 @@ func NewNATSPermissions(ctx context.Context, h *hosting.Hosting) (*NATSPermissio
 	return w, nil
 }
 
-func (w *NATSPermissions) Reload(ctx context.Context) error {
+func (w *Permissions) Reload(ctx context.Context) error {
 	w.m.Lock()
 	defer w.m.Unlock()
 
@@ -99,34 +108,34 @@ func (w *NATSPermissions) Reload(ctx context.Context) error {
 	return nil
 }
 
-func (w *NATSPermissions) saveUsers(ctx context.Context) error {
+func (w *Permissions) saveUsers(ctx context.Context) error {
 	w.m.Lock()
 	defer w.m.Unlock()
 
 	return hosting.SetKeyToKV(ctx, w.kv, "users", w.Users)
 }
 
-func (w *NATSPermissions) saveGroups(ctx context.Context) error {
+func (w *Permissions) saveGroups(ctx context.Context) error {
 	w.m.Lock()
 	defer w.m.Unlock()
 
 	return hosting.SetKeyToKV(ctx, w.kv, "groups", w.Groups)
 }
 
-func (p *NATSPermissions) GroupNames() []string {
+func (p *Permissions) GroupNames() []string {
 	return util.MapKeys(p.Groups)
 }
 
-func (p *NATSPermissions) GetUsers() []string {
+func (p *Permissions) GetUsers() []string {
 	return util.MapKeys(p.Users)
 }
 
-func (p *NATSPermissions) GetGroup(name string) (PermissionGroup, bool) {
+func (p *Permissions) GetGroup(name string) (PermissionGroup, bool) {
 	group, exists := p.Groups[name]
 	return group, exists
 }
 
-func (p *NATSPermissions) UserPermissions(name string) ([]string, bool) {
+func (p *Permissions) UserPermissions(name string) ([]string, bool) {
 	user, ok := p.Users[name]
 	if !ok {
 		return make([]string, 0), false
@@ -135,7 +144,7 @@ func (p *NATSPermissions) UserPermissions(name string) ([]string, bool) {
 	return user.Permissions, true
 }
 
-func (p *NATSPermissions) UserGroups(name string) ([]string, bool) {
+func (p *Permissions) UserGroups(name string) ([]string, bool) {
 	user, ok := p.Users[name]
 	if !ok {
 		return make([]string, 0), false
@@ -144,7 +153,7 @@ func (p *NATSPermissions) UserGroups(name string) ([]string, bool) {
 	return user.Groups, true
 }
 
-func (p *NATSPermissions) GroupHasPermission(name string, permission string) bool {
+func (p *Permissions) GroupHasPermission(name string, permission string) bool {
 	group, exists := p.GetGroup(name)
 	if !exists {
 		log.Printf("WARN: Group %s does not exist", name)
@@ -164,7 +173,7 @@ func (p *NATSPermissions) GroupHasPermission(name string, permission string) boo
 	return false
 }
 
-func (p *NATSPermissions) UserHasPermission(player string, permission string) bool {
+func (p *Permissions) UserHasPermission(player string, permission string) bool {
 	player = uuid.Normalize(player)
 
 	user, ok := p.Users[player]
@@ -192,7 +201,7 @@ func (p *NATSPermissions) UserHasPermission(player string, permission string) bo
 	return false
 }
 
-func (p *NATSPermissions) UserAddPermission(ctx context.Context, UUID string, permission string) error {
+func (p *Permissions) UserAddPermission(ctx context.Context, UUID string, permission string) error {
 	p.m.Lock()
 	UUID = uuid.Normalize(UUID)
 	user := p.Users[UUID]
@@ -203,7 +212,7 @@ func (p *NATSPermissions) UserAddPermission(ctx context.Context, UUID string, pe
 	return p.saveUsers(ctx)
 }
 
-func (p *NATSPermissions) GroupAddPermission(ctx context.Context, name string, permission string) error {
+func (p *Permissions) GroupAddPermission(ctx context.Context, name string, permission string) error {
 	p.m.Lock()
 	group := p.Groups[name]
 	group.Permissions = append(group.Permissions, permission)
@@ -213,7 +222,7 @@ func (p *NATSPermissions) GroupAddPermission(ctx context.Context, name string, p
 	return p.saveGroups(ctx)
 }
 
-func (p *NATSPermissions) UserRemovePermission(ctx context.Context, UUID string, permission string) error {
+func (p *Permissions) UserRemovePermission(ctx context.Context, UUID string, permission string) error {
 	p.m.Lock()
 	UUID = uuid.Normalize(UUID)
 	user := p.Users[UUID]
@@ -228,7 +237,7 @@ func (p *NATSPermissions) UserRemovePermission(ctx context.Context, UUID string,
 	return p.saveUsers(ctx)
 }
 
-func (p *NATSPermissions) GroupRemovePermission(ctx context.Context, name string, permission string) error {
+func (p *Permissions) GroupRemovePermission(ctx context.Context, name string, permission string) error {
 	p.m.Lock()
 	group := p.Groups[name]
 

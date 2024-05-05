@@ -26,7 +26,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	permissionsFile, err := permissions.NewNATSPermissions(context.Background(), h)
+	perms, err := permissions.NewKVPermissions(context.Background(), h)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -39,10 +39,10 @@ func main() {
 			return fallback.New(h)
 		},
 		func(_ *hosting.Hosting) (proxy.Plugin, error) {
-			return permissions.New(permissionsFile)
+			return permissions.New(perms)
 		},
 		func(_ *hosting.Hosting) (proxy.Plugin, error) {
-			return whitelist.New(h, permissionsFile)
+			return whitelist.New(h, perms)
 		},
 		motd.New,
 	}
