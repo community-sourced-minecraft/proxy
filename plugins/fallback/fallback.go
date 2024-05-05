@@ -2,14 +2,11 @@ package fallback
 
 import (
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
-	"math/rand"
-	"time"
 
 	"github.com/Community-Sourced-Minecraft/Gate-Proxy/internal/hosting"
-	"github.com/Community-Sourced-Minecraft/Gate-Proxy/internal/hosting/kv"
 	"github.com/robinbraemer/event"
 	"go.minekube.com/common/minecraft/color"
 	. "go.minekube.com/common/minecraft/component"
@@ -17,24 +14,21 @@ import (
 )
 
 type FallbackPlugin struct {
-	prx         *proxy.Proxy
-	h           *hosting.Hosting
-	rnd         *rand.Rand
-	instancesKV kv.Bucket
+	prx *proxy.Proxy
+	h   *hosting.Hosting
+	mgr *hosting.InstanceManager
 }
 
 func New(h *hosting.Hosting) (proxy.Plugin, error) {
 	return proxy.Plugin{
 		Name: "Fallback",
 		Init: func(ctx context.Context, prx *proxy.Proxy) error {
-			rnd := rand.New(rand.NewSource(time.Now().Unix()))
-
-			instancesKV, err := h.KV().Bucket(ctx, h.Info.KVInstancesKey())
+			mgr, err := h.InstanceManager(ctx, prx)
 			if err != nil {
 				return err
 			}
 
-			p := &FallbackPlugin{prx: prx, h: h, rnd: rnd, instancesKV: instancesKV}
+			p := &FallbackPlugin{prx: prx, h: h, mgr: mgr}
 
 			return p.Init(ctx)
 		},
@@ -49,21 +43,18 @@ func (p *FallbackPlugin) Init(ctx context.Context) error {
 
 func (p *FallbackPlugin) onServerDisconnect(e *proxy.KickedFromServerEvent) {
 	fmt.Println("Kicked from server!")
-	servers, err := p.GetServersOfGamemode(e.Player().Context(), "lobby")
-	if err != nil {
-		log.Printf("Failed to get servers of gamemode lobby: %v", err)
+
+	server, err := p.mgr.GetRandomServerOfGamemode(e.Player().Context(), "lobby")
+	if errors.Is(err, hosting.ErrNoServersAvailable) {
+		log.Printf("No servers available for player %s", e.Player().ID())
+		return
+	} else if err != nil {
+		log.Printf("Failed to get random server of gamemode lobby: %v", err)
 		// Fallback to default
 		e.Player().CreateConnectionRequest(p.prx.Server("lobby-0"))
 		return
 	}
 
-	availableServers := len(servers)
-	if availableServers == 0 {
-		log.Printf("No servers available for player %s", e.Player().ID())
-		return
-	}
-
-	server := servers[p.rnd.Intn(availableServers)]
 	log.Printf("Chose server %s for player %s", server.ServerInfo().Name(), e.Player().ID())
 
 	e.SetResult(&proxy.RedirectPlayerKickResult{
@@ -80,39 +71,4 @@ func (p *FallbackPlugin) onServerDisconnect(e *proxy.KickedFromServerEvent) {
 		Content: "Connecting to the fallback server.",
 		S:       Style{Color: color.Gray},
 	})
-}
-
-func (p *FallbackPlugin) GetServersOfGamemode(ctx context.Context, gamemode string) ([]proxy.RegisteredServer, error) {
-	keys, err := p.instancesKV.ListKeys(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	var servers []proxy.RegisteredServer
-	for _, key := range keys {
-		v, err := p.instancesKV.Get(ctx, key)
-		if err != nil {
-			return nil, err
-		}
-
-		info := hosting.InstanceInfo{}
-		if err := json.Unmarshal(v, &info); err != nil {
-			log.Printf("Failed to unmarshal instance info: %v", err)
-			continue
-		}
-
-		if info.Gamemode != gamemode {
-			continue
-		}
-
-		s := p.prx.Server(key)
-		if s == nil {
-			log.Printf("Server %s not found in registry", key)
-			continue
-		}
-
-		servers = append(servers, s)
-	}
-
-	return servers, nil
 }

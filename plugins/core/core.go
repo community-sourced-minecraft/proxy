@@ -3,12 +3,10 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
-	"math/rand"
-	"net"
 	"strings"
-	"time"
 
 	"github.com/Community-Sourced-Minecraft/Gate-Proxy/internal/hosting"
 	"github.com/Community-Sourced-Minecraft/Gate-Proxy/internal/hosting/kv"
@@ -25,7 +23,7 @@ import (
 type CorePlugin struct {
 	prx         *proxy.Proxy
 	h           *hosting.Hosting
-	rnd         *rand.Rand
+	mgr         *hosting.InstanceManager
 	instancesKV kv.Bucket
 }
 
@@ -33,35 +31,21 @@ func New(h *hosting.Hosting) (proxy.Plugin, error) {
 	return proxy.Plugin{
 		Name: "Core",
 		Init: func(ctx context.Context, prx *proxy.Proxy) error {
-			rnd := rand.New(rand.NewSource(time.Now().Unix()))
-
 			instancesKV, err := h.KV().Bucket(ctx, h.Info.KVInstancesKey())
 			if err != nil {
 				return err
 			}
 
-			p := &CorePlugin{prx: prx, h: h, rnd: rnd, instancesKV: instancesKV}
+			mgr, err := h.InstanceManager(ctx, prx)
+			if err != nil {
+				return err
+			}
+
+			p := &CorePlugin{prx: prx, h: h, instancesKV: instancesKV, mgr: mgr}
 
 			return p.Init(ctx)
 		},
 	}, nil
-}
-
-func (p *CorePlugin) registerPodByName(podName string, info hosting.InstanceInfo) error {
-	ip, err := net.ResolveTCPAddr("tcp4", fmt.Sprintf("%s:%d", info.Address, info.Port))
-	if err != nil {
-		return err
-	}
-
-	if s := p.prx.Server(podName); s != nil {
-		if p.prx.Unregister(s.ServerInfo()) {
-			log.Printf("Unregistered server %s", podName)
-		}
-	}
-
-	_, err = p.prx.Register(proxy.NewServerInfo(podName, ip))
-
-	return err
 }
 
 func (p *CorePlugin) Init(ctx context.Context) error {
@@ -89,17 +73,15 @@ func (p *CorePlugin) Init(ctx context.Context) error {
 
 				log.Printf("Parsed pod info for %s: %+v", podName, info)
 
-				if err := p.registerPodByName(podName, info); err != nil {
-					log.Fatal(err)
+				if err := p.mgr.Register(ctx, podName, info); err != nil {
+					log.Printf("Failed to register server %s: %v", podName, err)
 				}
 
 			case kv.Delete:
 				log.Printf("Deleted pod info for %s", podName)
 
-				if s := p.prx.Server(podName); s != nil {
-					if p.prx.Unregister(s.ServerInfo()) {
-						log.Printf("Unregistered server %s", podName)
-					}
+				if err := p.mgr.Unregister(ctx, podName); err != nil {
+					log.Printf("Failed to unregister server %s: %v", podName, err)
 				}
 
 				continue
@@ -250,21 +232,17 @@ func (p *CorePlugin) Init(ctx context.Context) error {
 }
 
 func (p *CorePlugin) onChooseServer(e *proxy.PlayerChooseInitialServerEvent) {
-	servers, err := p.GetServersOfGamemode(e.Player().Context(), "lobby")
-	if err != nil {
+	server, err := p.mgr.GetRandomServerOfGamemode(e.Player().Context(), "lobby")
+	if errors.Is(err, hosting.ErrNoServersAvailable) {
+		log.Printf("No servers available for player %s", e.Player().ID())
+		return
+	} else if err != nil {
 		log.Printf("Failed to get servers of gamemode lobby: %v", err)
 		// Fallback to default
 		e.SetInitialServer(p.prx.Server("lobby-0"))
 		return
 	}
 
-	availableServers := len(servers)
-	if availableServers == 0 {
-		log.Printf("No servers available for player %s", e.Player().ID())
-		return
-	}
-
-	server := servers[p.rnd.Intn(availableServers)]
 	log.Printf("Chose server %s for player %s", server.ServerInfo().Name(), e.Player().ID())
 
 	e.SetInitialServer(server)
@@ -286,39 +264,4 @@ func (p *CorePlugin) onServerSwitch(e *proxy.ServerPostConnectEvent) {
 			&Text{Content: "."},
 		},
 	})
-}
-
-func (p *CorePlugin) GetServersOfGamemode(ctx context.Context, gamemode string) ([]proxy.RegisteredServer, error) {
-	keys, err := p.instancesKV.ListKeys(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	var servers []proxy.RegisteredServer
-	for _, key := range keys {
-		v, err := p.instancesKV.Get(ctx, key)
-		if err != nil {
-			return nil, err
-		}
-
-		info := hosting.InstanceInfo{}
-		if err := json.Unmarshal(v, &info); err != nil {
-			log.Printf("Failed to unmarshal instance info: %v", err)
-			continue
-		}
-
-		if info.Gamemode != gamemode {
-			continue
-		}
-
-		s := p.prx.Server(key)
-		if s == nil {
-			log.Printf("Server %s not found in registry", key)
-			continue
-		}
-
-		servers = append(servers, s)
-	}
-
-	return servers, nil
 }
