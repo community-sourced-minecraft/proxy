@@ -9,6 +9,7 @@ import (
 	"github.com/Community-Sourced-Minecraft/Gate-Proxy/plugins/core"
 	"github.com/Community-Sourced-Minecraft/Gate-Proxy/plugins/motd"
 	"github.com/Community-Sourced-Minecraft/Gate-Proxy/plugins/permissions"
+	"github.com/Community-Sourced-Minecraft/Gate-Proxy/plugins/resourcepack"
 	"github.com/Community-Sourced-Minecraft/Gate-Proxy/plugins/tab"
 	"github.com/Community-Sourced-Minecraft/Gate-Proxy/plugins/whitelist"
 
@@ -45,6 +46,7 @@ func main() {
 	proxy.Plugins = append(proxy.Plugins,
 		tab.Plugin,
 		bossbar.Plugin,
+		resourcepack.Plugin,
 	)
 
 	for _, create := range plugins {
