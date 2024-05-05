@@ -12,9 +12,7 @@ import (
 	"github.com/Community-Sourced-Minecraft/Gate-Proxy/internal/hosting/kv"
 )
 
-var _ Whitelist = &NATSWhitelist{}
-
-type NATSWhitelist struct {
+type Whitelist struct {
 	Enabled     bool     `json:"enabled"`
 	Whitelisted []string `json:"whitelisted"`
 	m           sync.RWMutex
@@ -22,13 +20,13 @@ type NATSWhitelist struct {
 	kv          kv.Bucket
 }
 
-func NewNATSWhitelist(ctx context.Context, h *hosting.Hosting) (*NATSWhitelist, error) {
+func NewKVWhitelist(ctx context.Context, h *hosting.Hosting) (*Whitelist, error) {
 	kv, err := h.KV().Bucket(ctx, h.Info.KVNetworkKey()+"_whitelist")
 	if err != nil {
 		return nil, err
 	}
 
-	w := &NATSWhitelist{
+	w := &Whitelist{
 		Enabled:     false,
 		Whitelisted: make([]string, 0),
 		h:           h,
@@ -77,7 +75,7 @@ func NewNATSWhitelist(ctx context.Context, h *hosting.Hosting) (*NATSWhitelist, 
 	return w, nil
 }
 
-func (w *NATSWhitelist) Reload() error {
+func (w *Whitelist) Reload() error {
 	w.m.Lock()
 	defer w.m.Unlock()
 
@@ -96,7 +94,7 @@ func (w *NATSWhitelist) Reload() error {
 	return nil
 }
 
-func (w *NATSWhitelist) saveEnabled() error {
+func (w *Whitelist) saveEnabled() error {
 	w.m.Lock()
 	defer w.m.Unlock()
 
@@ -107,7 +105,7 @@ func (w *NATSWhitelist) saveEnabled() error {
 	return nil
 }
 
-func (w *NATSWhitelist) saveWhitelisted() error {
+func (w *Whitelist) saveWhitelisted() error {
 	w.m.Lock()
 	defer w.m.Unlock()
 
@@ -118,14 +116,14 @@ func (w *NATSWhitelist) saveWhitelisted() error {
 	return nil
 }
 
-func (w *NATSWhitelist) IsEnabled() bool {
+func (w *Whitelist) IsEnabled() bool {
 	w.m.RLock()
 	defer w.m.RUnlock()
 
 	return w.Enabled
 }
 
-func (w *NATSWhitelist) Enable() error {
+func (w *Whitelist) Enable() error {
 	w.m.Lock()
 	w.Enabled = true
 	w.m.Unlock()
@@ -133,7 +131,7 @@ func (w *NATSWhitelist) Enable() error {
 	return w.saveEnabled()
 }
 
-func (w *NATSWhitelist) Disable() error {
+func (w *Whitelist) Disable() error {
 	w.m.Lock()
 	w.Enabled = false
 	w.m.Unlock()
@@ -141,7 +139,7 @@ func (w *NATSWhitelist) Disable() error {
 	return w.saveEnabled()
 }
 
-func (w *NATSWhitelist) Add(uuid string) error {
+func (w *Whitelist) Add(uuid string) error {
 	w.m.Lock()
 	w.Whitelisted = append(w.Whitelisted, uuid)
 	w.m.Unlock()
@@ -149,7 +147,7 @@ func (w *NATSWhitelist) Add(uuid string) error {
 	return w.saveWhitelisted()
 }
 
-func (w *NATSWhitelist) Remove(uuid string) error {
+func (w *Whitelist) Remove(uuid string) error {
 	w.m.Lock()
 	w.Whitelisted = slices.DeleteFunc(w.Whitelisted, func(s string) bool {
 		return s == uuid
@@ -159,14 +157,14 @@ func (w *NATSWhitelist) Remove(uuid string) error {
 	return w.saveWhitelisted()
 }
 
-func (w *NATSWhitelist) Contains(uuid string) bool {
+func (w *Whitelist) Contains(uuid string) bool {
 	w.m.RLock()
 	defer w.m.RUnlock()
 
 	return slices.Contains(w.Whitelisted, uuid)
 }
 
-func (w *NATSWhitelist) AllWhitelisted() []string {
+func (w *Whitelist) AllWhitelisted() []string {
 	w.m.RLock()
 	defer w.m.RUnlock()
 

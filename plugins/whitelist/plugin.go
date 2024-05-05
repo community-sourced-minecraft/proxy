@@ -17,25 +17,14 @@ import (
 	"go.minekube.com/gate/pkg/edition/java/proxy"
 )
 
-type Whitelist interface {
-	Reload() error
-	IsEnabled() bool
-	Enable() error
-	Disable() error
-	Add(uuid string) error
-	Remove(uuid string) error
-	Contains(uuid string) bool
-	AllWhitelisted() []string
-}
-
 type WhitelistPlugin struct {
-	whitelist   Whitelist
+	whitelist   *Whitelist
 	permissions *permissions.Permissions
 	h           *hosting.Hosting
 }
 
 func NewPlugin(h *hosting.Hosting, permissions *permissions.Permissions) (*WhitelistPlugin, error) {
-	whitelist, err := NewNATSWhitelist(context.Background(), h)
+	whitelist, err := NewKVWhitelist(context.Background(), h)
 	if err != nil {
 		return nil, err
 	}
