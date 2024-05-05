@@ -32,26 +32,19 @@ func main() {
 	}
 
 	var plugins = []PluginCreator{
-		func(h *hosting.Hosting) (proxy.Plugin, error) {
-			return core.New(h)
-		},
-		func(h *hosting.Hosting) (proxy.Plugin, error) {
-			return fallback.New(h)
-		},
+		core.New,
+		fallback.New,
 		func(_ *hosting.Hosting) (proxy.Plugin, error) {
 			return permissions.New(perms)
 		},
-		func(_ *hosting.Hosting) (proxy.Plugin, error) {
+		func(h *hosting.Hosting) (proxy.Plugin, error) {
 			return whitelist.New(h, perms)
 		},
 		motd.New,
+		tab.New,
+		bossbar.New,
+		resourcepack.New,
 	}
-
-	proxy.Plugins = append(proxy.Plugins,
-		tab.Plugin,
-		bossbar.Plugin,
-		resourcepack.Plugin,
-	)
 
 	for _, create := range plugins {
 		p, err := create(h)

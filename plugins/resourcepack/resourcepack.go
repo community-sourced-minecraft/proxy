@@ -3,6 +3,7 @@ package resourcepack
 import (
 	"context"
 
+	"github.com/Community-Sourced-Minecraft/Gate-Proxy/internal/hosting"
 	"github.com/Community-Sourced-Minecraft/Gate-Proxy/lib/util"
 	"github.com/robinbraemer/event"
 	"go.minekube.com/common/minecraft/color"
@@ -21,13 +22,15 @@ func mustParseUUID(s string) uuid.UUID {
 	return u
 }
 
-var Plugin = proxy.Plugin{
-	Name: "Resource Pack",
-	Init: func(ctx context.Context, proxy *proxy.Proxy) error {
-		event.Subscribe(proxy.Event(), 0, resourcePackPrompt())
+func New(_ *hosting.Hosting) (proxy.Plugin, error) {
+	return proxy.Plugin{
+		Name: "Resource Pack",
+		Init: func(ctx context.Context, proxy *proxy.Proxy) error {
+			event.Subscribe(proxy.Event(), 0, resourcePackPrompt())
 
-		return nil
-	},
+			return nil
+		},
+	}, nil
 }
 
 func resourcePackPrompt() func(*proxy.ServerPostConnectEvent) {

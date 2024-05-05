@@ -3,6 +3,7 @@ package tab
 import (
 	"context"
 
+	"github.com/Community-Sourced-Minecraft/Gate-Proxy/internal/hosting"
 	"github.com/robinbraemer/event"
 	"go.minekube.com/common/minecraft/color"
 	c "go.minekube.com/common/minecraft/component"
@@ -10,13 +11,15 @@ import (
 	"go.minekube.com/gate/pkg/edition/java/proxy"
 )
 
-var Plugin = proxy.Plugin{
-	Name: "Tablist",
-	Init: func(ctx context.Context, proxy *proxy.Proxy) error {
-		event.Subscribe(proxy.Event(), 0, onPostLogin)
+func New(_ *hosting.Hosting) (proxy.Plugin, error) {
+	return proxy.Plugin{
+		Name: "Tablist",
+		Init: func(ctx context.Context, proxy *proxy.Proxy) error {
+			event.Subscribe(proxy.Event(), 0, onPostLogin)
 
-		return nil
-	},
+			return nil
+		},
+	}, nil
 }
 
 func onPostLogin(e *proxy.ServerPostConnectEvent) {
