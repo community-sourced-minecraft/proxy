@@ -258,7 +258,7 @@ func (p *CorePlugin) Init(ctx context.Context) error {
 }
 
 func (p *CorePlugin) onChooseServer(e *proxy.PlayerChooseInitialServerEvent) {
-	servers, err := p.getServersOfGamemode(e.Player().Context(), "lobby")
+	servers, err := p.GetServersOfGamemode(e.Player().Context(), "lobby")
 	if err != nil {
 		log.Printf("Failed to get servers of gamemode lobby: %v", err)
 		// Fallback to default
@@ -296,7 +296,7 @@ func (p *CorePlugin) onServerSwitch(e *proxy.ServerPostConnectEvent) {
 	})
 }
 
-func (p *CorePlugin) getServersOfGamemode(ctx context.Context, gamemode string) ([]proxy.RegisteredServer, error) {
+func (p *CorePlugin) GetServersOfGamemode(ctx context.Context, gamemode string) ([]proxy.RegisteredServer, error) {
 	list, err := p.instancesKV.ListKeys(ctx)
 	if err != nil {
 		return nil, err

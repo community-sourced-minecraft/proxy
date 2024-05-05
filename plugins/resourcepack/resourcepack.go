@@ -24,24 +24,22 @@ func mustParseUUID(s string) uuid.UUID {
 var Plugin = proxy.Plugin{
 	Name: "Resource Pack",
 	Init: func(ctx context.Context, proxy *proxy.Proxy) error {
-		event.Subscribe(proxy.Event(), 0, bossbarDisplay())
+		event.Subscribe(proxy.Event(), 0, resourcePackPrompt())
 
 		return nil
 	},
 }
 
-func bossbarDisplay() func(*proxy.ServerPostConnectEvent) {
+func resourcePackPrompt() func(*proxy.ServerPostConnectEvent) {
 	return func(ple *proxy.ServerPostConnectEvent) {
-		if ple.Player().AppliedResourcePack().ID == resourcePackUUID {
-			ple.Player().SendResourcePack(proxy.ResourcePackInfo{
-				ID:          resourcePackUUID,
-				URL:         "https://s3.devminer.xyz/csmc/csmc.zip",
-				ShouldForce: true,
-				Prompt: &component.Text{
-					Content: util.Latinize("you are required to use this texturepack in csmc.dev"),
-					S:       component.Style{Color: color.Yellow, Bold: component.True},
-				},
-			})
-		}
+		ple.Player().SendResourcePack(proxy.ResourcePackInfo{
+			ID:          resourcePackUUID,
+			URL:         "https://s3.devminer.xyz/csmc/csmc.zip",
+			ShouldForce: true,
+			Prompt: &component.Text{
+				Content: util.Latinize("you are required to use this texturepack in csmc.dev"),
+				S:       component.Style{Color: color.Yellow, Bold: component.True},
+			},
+		})
 	}
 }
