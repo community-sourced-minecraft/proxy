@@ -48,19 +48,9 @@ func New(h *hosting.Hosting) (proxy.Plugin, error) {
 
 			p := &CorePlugin{prx: prx, h: h, rnd: rnd, instancesKV: instancesKV}
 
-			event.Subscribe(prx.Event(), 0, p.handleInvalidCommand())
-
 			return p.Init(ctx)
 		},
 	}, nil
-}
-
-func (p *CorePlugin) handleInvalidCommand() func(e *proxy.CommandExecuteEvent) {
-	return func(e *proxy.CommandExecuteEvent) {
-		e.Source().SendMessage(&Text{
-			Content: fmt.Sprintf("Unknown command! Type /help for help. ('%s')", e.Command()),
-		})
-	}
 }
 
 func (p *CorePlugin) registerPodByName(podName string, info hosting.InstanceInfo) error {
