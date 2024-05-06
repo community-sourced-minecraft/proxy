@@ -2,7 +2,9 @@ package messaging
 
 import (
 	"context"
-	"log"
+
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 )
 
 var _ Messager = &Logged{}
@@ -15,23 +17,28 @@ func WithLogger(m Messager) *Logged {
 	return &Logged{m: m}
 }
 
-func (l *Logged) Subscribe(topic string, handler func(Message)) error {
-	log.Printf("Subscribe %s", topic)
+func (m *Logged) Subscribe(topic string, handler func(Message)) error {
+	l := log.With().Str("topic", topic).Logger()
 
-	return l.m.Subscribe(topic, func(m Message) {
-		log.Printf("Received %s", m)
+	l.Trace().Msg("Subscribe")
 
-		handler(&LoggedMessage{m: m})
+	return m.m.Subscribe(topic, func(m Message) {
+		wm := newLoggedMessage(m)
+		wm.l.Trace().Msg("Received")
+
+		handler(wm)
 	})
 }
 
-func (l *Logged) Publish(ctx context.Context, topic string, message []byte) error {
-	if err := l.m.Publish(ctx, topic, message); err != nil {
-		log.Printf("Failed to publish %s/%s: %v", topic, message, err)
+func (m *Logged) Publish(ctx context.Context, topic string, message []byte) error {
+	l := log.With().Str("topic", topic).Bytes("message", message).Logger()
+
+	if err := m.m.Publish(ctx, topic, message); err != nil {
+		l.Trace().Err(err).Msg("Failed to publish")
 		return err
 	}
 
-	log.Printf("Published %s/%s", topic, message)
+	l.Trace().Msg("Published")
 
 	return nil
 }
@@ -40,6 +47,14 @@ var _ Message = &LoggedMessage{}
 
 type LoggedMessage struct {
 	m Message
+	l zerolog.Logger
+}
+
+func newLoggedMessage(m Message) *LoggedMessage {
+	return &LoggedMessage{
+		m: m,
+		l: log.With().Str("msg", m.String()).Logger(),
+	}
 }
 
 func (m LoggedMessage) Context() context.Context {
@@ -59,34 +74,36 @@ func (m LoggedMessage) String() string {
 }
 
 func (m LoggedMessage) Respond(message []byte) error {
+	l := m.l.With().Bytes("response", message).Logger()
+
 	if err := m.m.Respond(message); err != nil {
-		log.Printf("DBG: Failed to respond to %s: %v", message, err)
+		l.Error().Err(err).Msg("Failed to respond")
 		return err
 	}
 
-	log.Printf("DBG: Responded to %s", message)
+	l.Trace().Msg("Responded")
 
 	return nil
 }
 
 func (m LoggedMessage) Nak() error {
 	if err := m.m.Nak(); err != nil {
-		log.Printf("DBG: Failed to Nak: %v", err)
+		m.l.Error().Err(err).Msg("Failed to Nak")
 		return err
 	}
 
-	log.Printf("DBG: Nak")
+	m.l.Trace().Msg("Nak")
 
 	return nil
 }
 
 func (m LoggedMessage) Ack() error {
 	if err := m.m.Ack(); err != nil {
-		log.Printf("DBG: Failed to Ack: %v", err)
+		m.l.Error().Err(err).Msg("Failed to Ack")
 		return err
 	}
 
-	log.Printf("DBG: Ack")
+	m.l.Trace().Msg("Ack")
 
 	return nil
 }

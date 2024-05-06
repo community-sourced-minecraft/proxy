@@ -3,11 +3,11 @@ package fallback
 import (
 	"context"
 	"errors"
-	"fmt"
-	"log"
 
 	"github.com/Community-Sourced-Minecraft/Gate-Proxy/internal/hosting"
 	"github.com/robinbraemer/event"
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 	"go.minekube.com/common/minecraft/color"
 	. "go.minekube.com/common/minecraft/component"
 	"go.minekube.com/gate/pkg/edition/java/proxy"
@@ -17,6 +17,7 @@ type FallbackPlugin struct {
 	prx *proxy.Proxy
 	h   *hosting.Hosting
 	mgr *hosting.InstanceManager
+	l   zerolog.Logger
 }
 
 func New(h *hosting.Hosting) (proxy.Plugin, error) {
@@ -28,7 +29,7 @@ func New(h *hosting.Hosting) (proxy.Plugin, error) {
 				return err
 			}
 
-			p := &FallbackPlugin{prx: prx, h: h, mgr: mgr}
+			p := &FallbackPlugin{prx: prx, h: h, mgr: mgr, l: log.With().Str("plugin", "fallback").Logger()}
 
 			return p.Init(ctx)
 		},
@@ -42,20 +43,24 @@ func (p *FallbackPlugin) Init(ctx context.Context) error {
 }
 
 func (p *FallbackPlugin) onServerDisconnect(e *proxy.KickedFromServerEvent) {
-	fmt.Println("Kicked from server!")
+	l := p.l.With().Str("player", e.Player().ID().String()).Logger()
+
+	// TODO: Figure out if the player got disconnected because of a kick or a server shutdown
+
+	p.l.Println("Got kicked from server")
 
 	server, err := p.mgr.GetRandomServerOfGamemode(e.Player().Context(), "lobby")
 	if errors.Is(err, hosting.ErrNoServersAvailable) {
-		log.Printf("No servers available for player %s", e.Player().ID())
+		l.Warn().Msg("No servers available")
 		return
 	} else if err != nil {
-		log.Printf("Failed to get random server of gamemode lobby: %v", err)
+		l.Error().Err(err).Msgf("Failed to get random server of gamemode lobby")
 		// Fallback to default
 		e.Player().CreateConnectionRequest(p.prx.Server("lobby-0"))
 		return
 	}
 
-	log.Printf("Chose server %s for player %s", server.ServerInfo().Name(), e.Player().ID())
+	l.Info().Msgf("Chose server %s", server.ServerInfo().Name())
 
 	e.SetResult(&proxy.RedirectPlayerKickResult{
 		Server: server,

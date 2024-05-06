@@ -3,7 +3,6 @@ package kv
 import (
 	"context"
 	"errors"
-	"log"
 	"slices"
 	"sync"
 
@@ -113,7 +112,6 @@ func (b *NATSBucket) WatchAll(ctx context.Context) (Watcher, error) {
 		for msg := range watcher.Updates() {
 			if msg == nil {
 				w.m.Lock()
-				log.Printf("sending nil change")
 				w.changes <- nil
 				w.m.Unlock()
 				continue
@@ -130,7 +128,6 @@ func (b *NATSBucket) WatchAll(ctx context.Context) (Watcher, error) {
 			}
 
 			w.m.Lock()
-			log.Printf("sending %s change for %s", op, msg.Key())
 			w.changes <- &Value{
 				Key:       msg.Key(),
 				Value:     msg.Value(),
@@ -138,8 +135,6 @@ func (b *NATSBucket) WatchAll(ctx context.Context) (Watcher, error) {
 			}
 			w.m.Unlock()
 		}
-
-		log.Printf("watcher stopped")
 	}()
 
 	b.m.Lock()

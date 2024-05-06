@@ -5,12 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"math/rand"
 	"net"
 	"time"
 
 	"github.com/Community-Sourced-Minecraft/Gate-Proxy/internal/hosting/kv"
+	"github.com/rs/zerolog/log"
 	"go.minekube.com/gate/pkg/edition/java/proxy"
 )
 
@@ -45,10 +45,8 @@ func (m *InstanceManager) Register(ctx context.Context, name string, info Instan
 		return err
 	}
 
-	if s := m.prx.Server(name); s != nil {
-		if m.prx.Unregister(s.ServerInfo()) {
-			log.Printf("Unregistered server %s", name)
-		}
+	if err := m.Unregister(ctx, name); err != nil {
+		return err
 	}
 
 	_, err = m.prx.Register(proxy.NewServerInfo(name, ip))
@@ -63,7 +61,7 @@ func (m *InstanceManager) Unregister(ctx context.Context, name string) error {
 	}
 
 	if m.prx.Unregister(s.ServerInfo()) {
-		log.Printf("Unregistered server %s", name)
+		log.Info().Msgf("Unregistered server %s", name)
 	}
 
 	return nil
@@ -84,7 +82,7 @@ func (m *InstanceManager) GetServersOfGamemode(ctx context.Context, gamemode str
 
 		info := InstanceInfo{}
 		if err := json.Unmarshal(v, &info); err != nil {
-			log.Printf("Failed to unmarshal instance info: %v", err)
+			log.Error().Err(err).Msg("Failed to unmarshal instance info")
 			continue
 		}
 
@@ -94,7 +92,7 @@ func (m *InstanceManager) GetServersOfGamemode(ctx context.Context, gamemode str
 
 		s := m.prx.Server(key)
 		if s == nil {
-			log.Printf("Server %s not found in registry", key)
+			log.Warn().Msgf("Server %s not found in registry", key)
 			continue
 		}
 

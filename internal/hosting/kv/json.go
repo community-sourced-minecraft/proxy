@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"log"
 	"slices"
 	"sync"
 
@@ -133,7 +132,6 @@ func (b *JSONBucket) Set(ctx context.Context, key string, value []byte) error {
 	b.Data[key] = value
 
 	for _, w := range b.watchers {
-		log.Printf("sending put change for %s", key)
 		w.m.Lock()
 		w.changes <- &Value{Key: key, Value: value, Operation: Put}
 		w.m.Unlock()
@@ -154,7 +152,6 @@ func (b *JSONBucket) Delete(ctx context.Context, key string) error {
 	delete(b.Data, key)
 
 	for _, w := range b.watchers {
-		log.Printf("sending delete change for %s", key)
 		w.m.Lock()
 		w.changes <- &Value{Key: key, Operation: Delete}
 		w.m.Unlock()
@@ -187,9 +184,7 @@ func (b *JSONBucket) WatchAll(ctx context.Context) (Watcher, error) {
 	w.m.Lock()
 	b.watchers = append(b.watchers, w)
 
-	log.Printf("replaying %d changes", len(b.Data))
 	for k, v := range b.Data {
-		log.Printf("sending put change for %s", k)
 		v_ := &Value{Key: k, Value: v, Operation: Put}
 
 		w.changes <- v_

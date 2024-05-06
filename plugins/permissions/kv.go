@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"log"
 	"slices"
 	"strings"
 	"sync"
@@ -13,6 +12,8 @@ import (
 	"github.com/Community-Sourced-Minecraft/Gate-Proxy/internal/hosting/kv"
 	"github.com/Community-Sourced-Minecraft/Gate-Proxy/lib/util"
 	"github.com/Community-Sourced-Minecraft/Gate-Proxy/lib/util/uuid"
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 )
 
 type PermissionUser struct {
@@ -32,6 +33,7 @@ type Permissions struct {
 	m      sync.RWMutex
 	h      *hosting.Hosting
 	kv     kv.Bucket
+	l      zerolog.Logger
 }
 
 func NewKVPermissions(ctx context.Context, h *hosting.Hosting) (*Permissions, error) {
@@ -40,11 +42,14 @@ func NewKVPermissions(ctx context.Context, h *hosting.Hosting) (*Permissions, er
 		return nil, err
 	}
 
+	l := log.With().Str("bucket", kv.Name()).Logger()
+
 	w := &Permissions{
 		Users:  make(map[string]PermissionUser),
 		Groups: make(map[string]PermissionGroup),
 		h:      h,
 		kv:     kv,
+		l:      l,
 	}
 
 	watcher, err := kv.WatchAll(context.Background())
@@ -60,25 +65,25 @@ func NewKVPermissions(ctx context.Context, h *hosting.Hosting) (*Permissions, er
 
 			switch key.Key {
 			case "users":
-				log.Printf("Users key changed: %s", key.Value)
+				l.Trace().Msgf("Users key changed: %s", key.Value)
 
 				w.m.Lock()
 
 				if err := json.Unmarshal(key.Value, &w.Users); err != nil {
 					w.m.Unlock()
-					log.Printf("Failed to unmarshal users key: %v", err)
+					l.Error().Err(err).Msg("Failed to unmarshal users key")
 				}
 
 				w.m.Unlock()
 
 			case "groups":
-				log.Printf("Groups key changed: %s", key.Value)
+				l.Trace().Msgf("Groups key changed: %s", key.Value)
 
 				w.m.Lock()
 
 				if err := json.Unmarshal(key.Value, &w.Groups); err != nil {
 					w.m.Unlock()
-					log.Printf("Failed to unmarshal groups key: %v", err)
+					l.Error().Err(err).Msg("Failed to unmarshal groups key")
 				}
 
 				w.m.Unlock()
@@ -156,7 +161,7 @@ func (p *Permissions) UserGroups(name string) ([]string, bool) {
 func (p *Permissions) GroupHasPermission(name string, permission string) bool {
 	group, exists := p.GetGroup(name)
 	if !exists {
-		log.Printf("WARN: Group %s does not exist", name)
+		p.l.Warn().Msgf("Group %s does not exist", name)
 		return false
 	}
 
@@ -178,7 +183,7 @@ func (p *Permissions) UserHasPermission(player string, permission string) bool {
 
 	user, ok := p.Users[player]
 	if !ok {
-		log.Printf("DBG: User %s does not exist", player)
+		p.l.Warn().Msgf("User %s does not exist", player)
 		return false
 	}
 

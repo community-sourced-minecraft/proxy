@@ -2,13 +2,13 @@ package hosting
 
 import (
 	"encoding/json"
-	"log"
 	"os"
 	"strconv"
 
 	"github.com/Community-Sourced-Minecraft/Gate-Proxy/internal/hosting/kv"
 	"github.com/Community-Sourced-Minecraft/Gate-Proxy/internal/hosting/messaging"
 	"github.com/Community-Sourced-Minecraft/Gate-Proxy/internal/hosting/storage"
+	"github.com/rs/zerolog/log"
 )
 
 type Hosting struct {
@@ -71,7 +71,7 @@ func getEnvBoolWithDefault(key string, def bool) bool {
 
 	v, err := strconv.ParseBool(raw)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal().Err(err).Str("key", key).Msg("Failed to parse boolean from env")
 	}
 
 	return v
@@ -85,12 +85,12 @@ func initStorage() (storage.Storage, error) {
 	var storageC storage.Storage
 	switch backend {
 	case "memory":
-		log.Println("Using memory as storage backend")
+		log.Info().Msg("Using memory as storage backend")
 
 		storageC = storage.NewMemory()
 
 	case "fs":
-		log.Println("Using FS as storage backend")
+		log.Info().Msg("Using FS as storage backend")
 
 		opts := storage.FSOptions{}
 		if err := json.Unmarshal([]byte(backendOptions), &opts); err != nil {
@@ -100,7 +100,7 @@ func initStorage() (storage.Storage, error) {
 		storageC = storage.NewFS(opts)
 
 	default:
-		log.Fatalf("unknown storage backend: %s", backend)
+		log.Fatal().Msgf("unknown storage backend: %s", backend)
 	}
 
 	if logging {
@@ -120,7 +120,7 @@ func initKV(strg storage.Storage) (kv.Client, error) {
 
 	switch backend {
 	case "nats":
-		log.Println("Using NATS as KV backend")
+		log.Info().Msg("Using NATS as KV backend")
 
 		opts := kv.NATSOptions{}
 		if err := json.Unmarshal([]byte(backendOptions), &opts); err != nil {
@@ -135,9 +135,12 @@ func initKV(strg storage.Storage) (kv.Client, error) {
 		kvC = kv.NewNATSClient(js)
 
 	case "json":
-		log.Println("Using JSON as KV backend")
+		log.Info().Msg("Using JSON as KV backend")
 
 		kvC, err = kv.NewJSONClient(strg, "")
+
+	default:
+		log.Fatal().Msgf("unknown KV backend: %s", backend)
 	}
 
 	if err != nil {
@@ -145,7 +148,7 @@ func initKV(strg storage.Storage) (kv.Client, error) {
 	}
 
 	if logging {
-		log.Println("Enabling logging for KV")
+		log.Info().Msg("Enabling logging for KV")
 
 		kvC = kv.WithLogger(kvC)
 	}
@@ -159,11 +162,10 @@ func initMessaging() (messaging.Messager, error) {
 	backendOptions := getEnvWithDefault("MESSAGING_BACKEND_OPTIONS", "{\"url\":\"nats://127.0.0.1:4222\"}")
 
 	var msgC messaging.Messager
-	var err error
 
 	switch backend {
 	case "nats":
-		log.Println("Using NATS as messaging backend")
+		log.Info().Msg("Using NATS as messaging backend")
 
 		opts := messaging.NATSOptions{}
 		if err := json.Unmarshal([]byte(backendOptions), &opts); err != nil {
@@ -178,11 +180,7 @@ func initMessaging() (messaging.Messager, error) {
 		msgC = messaging.NewNATS(nc)
 
 	default:
-		log.Fatalf("unknown messaging backend: %s", backend)
-	}
-
-	if err != nil {
-		return nil, err
+		log.Fatal().Msgf("unknown messaging backend: %s", backend)
 	}
 
 	if logging {

@@ -4,12 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"log"
 	"slices"
 	"sync"
 
 	"github.com/Community-Sourced-Minecraft/Gate-Proxy/internal/hosting"
 	"github.com/Community-Sourced-Minecraft/Gate-Proxy/internal/hosting/kv"
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 )
 
 type Whitelist struct {
@@ -18,6 +19,7 @@ type Whitelist struct {
 	m           sync.RWMutex
 	h           *hosting.Hosting
 	kv          kv.Bucket
+	l           zerolog.Logger
 }
 
 func NewKVWhitelist(ctx context.Context, h *hosting.Hosting) (*Whitelist, error) {
@@ -26,11 +28,14 @@ func NewKVWhitelist(ctx context.Context, h *hosting.Hosting) (*Whitelist, error)
 		return nil, err
 	}
 
+	l := log.With().Str("bucket", kv.Name()).Logger()
+
 	w := &Whitelist{
 		Enabled:     false,
 		Whitelisted: make([]string, 0),
 		h:           h,
 		kv:          kv,
+		l:           l,
 	}
 
 	watcher, err := kv.WatchAll(context.Background())
@@ -46,25 +51,25 @@ func NewKVWhitelist(ctx context.Context, h *hosting.Hosting) (*Whitelist, error)
 
 			switch key.Key {
 			case "enabled":
-				log.Printf("Enabled key changed: %s", key.Value)
+				l.Trace().Msgf("Enabled key changed: %s", key.Value)
 
 				w.m.Lock()
 
 				if err := json.Unmarshal(key.Value, &w.Enabled); err != nil {
 					w.m.Unlock()
-					log.Printf("Failed to unmarshal enabled key: %v", err)
+					l.Error().Err(err).Msg("Failed to unmarshal enabled key")
 				}
 
 				w.m.Unlock()
 
 			case "whitelisted":
-				log.Printf("Whitelisted key changed: %s", key.Value)
+				l.Trace().Msgf("Whitelisted key changed: %s", key.Value)
 
 				w.m.Lock()
 
 				if err := json.Unmarshal(key.Value, &w.Whitelisted); err != nil {
 					w.m.Unlock()
-					log.Printf("Failed to unmarshal whitelisted key: %v", err)
+					l.Error().Err(err).Msg("Failed to unmarshal whitelisted key")
 				}
 
 				w.m.Unlock()

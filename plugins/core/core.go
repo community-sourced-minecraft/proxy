@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"strings"
 
 	"github.com/Community-Sourced-Minecraft/Gate-Proxy/internal/hosting"
@@ -13,6 +12,8 @@ import (
 	"github.com/Community-Sourced-Minecraft/Gate-Proxy/internal/hosting/messaging"
 	"github.com/Community-Sourced-Minecraft/Gate-Proxy/internal/hosting/rpc"
 	"github.com/robinbraemer/event"
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 	"go.minekube.com/brigodier"
 	"go.minekube.com/common/minecraft/color"
 	. "go.minekube.com/common/minecraft/component"
@@ -25,6 +26,7 @@ type CorePlugin struct {
 	h           *hosting.Hosting
 	mgr         *hosting.InstanceManager
 	instancesKV kv.Bucket
+	l           zerolog.Logger
 }
 
 func New(h *hosting.Hosting) (proxy.Plugin, error) {
@@ -36,12 +38,14 @@ func New(h *hosting.Hosting) (proxy.Plugin, error) {
 				return err
 			}
 
+			l := log.With().Str("plugin", "core").Logger()
+
 			mgr, err := h.InstanceManager(ctx, prx)
 			if err != nil {
 				return err
 			}
 
-			p := &CorePlugin{prx: prx, h: h, instancesKV: instancesKV, mgr: mgr}
+			p := &CorePlugin{prx: prx, h: h, instancesKV: instancesKV, mgr: mgr, l: l}
 
 			return p.Init(ctx)
 		},
@@ -52,12 +56,11 @@ func (p *CorePlugin) Init(ctx context.Context) error {
 	go func() {
 		watcher, err := p.instancesKV.WatchAll(ctx)
 		if err != nil {
-			log.Fatal(err)
+			p.l.Fatal().Err(err).Msg("Failed to watch all instances")
 		}
 
 		for key := range watcher.Changes() {
 			if key == nil {
-				log.Println("Replayed keys for all instances")
 				continue
 			}
 
@@ -67,24 +70,20 @@ func (p *CorePlugin) Init(ctx context.Context) error {
 			case kv.Put:
 				info := hosting.InstanceInfo{}
 				if err := json.Unmarshal(key.Value, &info); err != nil {
-					log.Printf("Failed to unmarshal instance info: %v", err)
+					p.l.Error().Err(err).Msgf("Failed to unmarshal pod info for %s", podName)
 					continue
 				}
 
-				log.Printf("Parsed pod info for %s: %+v", podName, info)
+				p.l.Info().Msgf("Parsed pod info for %s: %+v", podName, info)
 
 				if err := p.mgr.Register(ctx, podName, info); err != nil {
-					log.Printf("Failed to register server %s: %v", podName, err)
+					p.l.Error().Err(err).Msgf("Failed to register server %s", podName)
 				}
 
 			case kv.Delete:
-				log.Printf("Deleted pod info for %s", podName)
-
 				if err := p.mgr.Unregister(ctx, podName); err != nil {
-					log.Printf("Failed to unregister server %s: %v", podName, err)
+					p.l.Error().Err(err).Msgf("Failed to unregister server %s", podName)
 				}
-
-				continue
 			}
 		}
 	}()
@@ -92,43 +91,58 @@ func (p *CorePlugin) Init(ctx context.Context) error {
 	{
 		errorReqRes, err := json.Marshal(&rpc.TransferPlayerResponse{Status: rpc.StatusError})
 		if err != nil {
-			log.Printf("Failed to marshal transfer player response: %v", err)
+			p.l.Error().Err(err).Msg("Failed to marshal error transfer player response")
 			return err
 		}
 
 		errorRes, err := json.Marshal(&rpc.Response{Type: rpc.TypeTransferPlayer, Data: string(errorReqRes)})
 		if err != nil {
-			log.Printf("Failed to marshal response: %v", err)
+			p.l.Error().Err(err).Msg("Failed to marshal error response")
 			return err
 		}
 
 		err = p.h.Messaging().Subscribe(p.h.Info.RPCNetworkSubject(), func(msg messaging.Message) {
-			log.Printf("Received raw request on transfers queue: %s", string(msg.Data()))
+			l := p.l.With().Bytes("data", msg.Data()).Logger()
+			l.Trace().Msgf("Received raw request")
 
 			payload := &rpc.Request{}
 			if err := json.Unmarshal(msg.Data(), payload); err != nil {
-				log.Printf("Failed to unmarshal payload: %v", err)
+				l.Error().Err(err).Msg("Failed to unmarshal request")
 				return
 			}
 
 			if payload.Type != rpc.TypeTransferPlayer {
-				log.Printf("Invalid payload type: %s", payload.Type)
-				msg.Nak()
+				l.Trace().Msgf("Ignoring request of type %s", payload.Type)
+
+				if err := msg.Nak(); err != nil {
+					l.Error().Err(err).Msg("Failed to nack request")
+				}
+
 				return
 			}
 
 			req := &rpc.TransferPlayerRequest{}
 			if err := json.Unmarshal([]byte(payload.Data), req); err != nil {
-				log.Printf("Failed to unmarshal transfer player request: %v", err)
-				msg.Nak()
+				l.Error().Err(err).Msg("Failed to unmarshal transfer player request")
+
+				if err := msg.Nak(); err != nil {
+					l.Error().Err(err).Msg("Failed to nack transfer player request")
+				}
+
 				return
 			}
-			log.Printf("Transfer player request: %v", req)
+
+			l = p.l.With().Str("player", req.UUID.String()).Str("destination", req.Destination).Logger()
+			l.Trace().Msgf("Transfer player request")
 
 			player := p.prx.Player(req.UUID)
 			if player == nil {
-				log.Printf("Player %s not found", req.UUID)
-				msg.Nak()
+				l.Trace().Msg("Player not found on this proxy")
+
+				if err := msg.Nak(); err != nil {
+					l.Error().Err(err).Msg("Failed to nack transfer player request")
+				}
+
 				return
 			}
 
@@ -147,31 +161,35 @@ func (p *CorePlugin) Init(ctx context.Context) error {
 				}
 			}
 			if newServer == nil {
-				log.Printf("Server %s not found", req.Destination)
+				p.l.Err(err).Msgf("Server %s not found", req.Destination)
 				msg.Nak()
 				return
 			}
 
 			c, err := player.CreateConnectionRequest(newServer).Connect(msg.Context())
 			if err != nil {
-				log.Printf("Failed to connect player %s to server %s: %v", req.UUID, req.Destination, err)
+				p.l.Error().Err(err).Msgf("Failed to connect player %s to server %s", req.UUID, req.Destination)
 
 				if err := msg.Respond(errorRes); err != nil {
-					log.Printf("Failed to respond to transfer player request: %v", err)
+					p.l.Error().Err(err).Msg("Failed to respond to transfer player request: %v")
 				}
 
 				return
 			}
 
 			if c.Status() == proxy.AlreadyConnectedConnectionStatus {
-				log.Printf("Player %s is already connected to server %s", req.UUID, req.Destination)
-				msg.Ack()
+				p.l.Info().Msgf("Player %s already connected to server %s", req.UUID, req.Destination)
+
+				if err := msg.Ack(); err != nil {
+					p.l.Error().Err(err).Msg("Failed to ack transfer player request")
+				}
+
 				return
 			} else if c.Status() != proxy.SuccessConnectionStatus {
-				log.Printf("Failed to connect player %s to server %s: %v: %v", req.UUID, req.Destination, c.Status(), c.Reason())
+				p.l.Printf("Failed to connect player %s to server %s: %v: %v", req.UUID, req.Destination, c.Status(), c.Reason())
 
 				if err := msg.Respond(errorRes); err != nil {
-					log.Printf("Failed to respond to transfer player request: %v", err)
+					p.l.Error().Err(err).Msg("Failed to respond to transfer player request: %v")
 				}
 
 				return
@@ -179,10 +197,10 @@ func (p *CorePlugin) Init(ctx context.Context) error {
 
 			reqRes, err := json.Marshal(&rpc.TransferPlayerResponse{Status: rpc.StatusOk})
 			if err != nil {
-				log.Printf("Failed to marshal transfer player response: %v", err)
+				p.l.Error().Err(err).Msg("Failed to marshal transfer player response")
 
 				if err := msg.Respond(errorRes); err != nil {
-					log.Printf("Failed to respond to transfer player request: %v", err)
+					p.l.Error().Err(err).Msg("Failed to respond to transfer player request: %v")
 				}
 
 				return
@@ -190,23 +208,24 @@ func (p *CorePlugin) Init(ctx context.Context) error {
 
 			res, err := json.Marshal(&rpc.Response{Type: payload.Type, Data: string(reqRes)})
 			if err != nil {
-				log.Printf("Failed to marshal response: %v", err)
+				p.l.Error().Err(err).Msg("Failed to marshal response")
 
 				if err := msg.Respond(errorRes); err != nil {
-					log.Printf("Failed to respond to transfer player request: %v", err)
+					p.l.Error().Err(err).Msg("Failed to respond to transfer player request: %v")
 				}
 
 				return
 			}
 
 			if err := msg.Respond(res); err != nil {
-				log.Printf("Failed to respond to transfer player request: %v", err)
+				l.Error().Err(err).Msg("Failed to respond to transfer player request: %v")
 			}
 
-			log.Printf("Player %s transferred to server %s", req.UUID, req.Destination)
+			l.Info().Msgf("Player %s transferred to server %s", req.UUID, req.Destination)
 		})
 		if err != nil {
-			log.Printf("Failed to subscribe to transfers: %v", err)
+			p.l.Error().Err(err).Msg("Failed to subscribe to RPC network")
+
 			return err
 		}
 	}
@@ -234,16 +253,16 @@ func (p *CorePlugin) Init(ctx context.Context) error {
 func (p *CorePlugin) onChooseServer(e *proxy.PlayerChooseInitialServerEvent) {
 	server, err := p.mgr.GetRandomServerOfGamemode(e.Player().Context(), "lobby")
 	if errors.Is(err, hosting.ErrNoServersAvailable) {
-		log.Printf("No servers available for player %s", e.Player().ID())
+		p.l.Warn().Msgf("No servers available for player %s", e.Player().ID())
 		return
 	} else if err != nil {
-		log.Printf("Failed to get servers of gamemode lobby: %v", err)
+		p.l.Error().Err(err).Msg("Failed to get servers of gamemode lobby")
 		// Fallback to default
 		e.SetInitialServer(p.prx.Server("lobby-0"))
 		return
 	}
 
-	log.Printf("Chose server %s for player %s", server.ServerInfo().Name(), e.Player().ID())
+	p.l.Trace().Msgf("Chose server %s for player %s", server.ServerInfo().Name(), e.Player().ID())
 
 	e.SetInitialServer(server)
 }

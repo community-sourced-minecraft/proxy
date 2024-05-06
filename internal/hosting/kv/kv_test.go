@@ -2,15 +2,23 @@ package kv
 
 import (
 	"context"
+	"os"
 	"testing"
+
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 )
 
 func testKV(ctx context.Context, t *testing.T, k Client) {
+	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
+
 	testKVCRUD(ctx, t, k)
 	testKVDoubleAccess(ctx, t, k)
 }
 
 func testKVCRUD(ctx context.Context, t *testing.T, k Client) {
+	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
+
 	t.Run("CRUD", func(t *testing.T) {
 		b, err := k.Bucket(ctx, "crud")
 		if err != nil {
@@ -54,6 +62,8 @@ func testKVCRUD(ctx context.Context, t *testing.T, k Client) {
 }
 
 func testKVDoubleAccess(ctx context.Context, t *testing.T, k Client) {
+	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
+
 	t.Run("Accessing the same bucket twice", func(t *testing.T) {
 		bucket1, err := k.Bucket(ctx, "double-access")
 		if err != nil {
@@ -177,6 +187,8 @@ func testKVWatchWatch(ctx context.Context, t *testing.T, k Client) {
 }
 
 func testKVWatchReplay(ctx context.Context, t *testing.T, k Client) {
+	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
+
 	t.Run("Initial data replay", func(t *testing.T) {
 		b, err := k.Bucket(ctx, "watch-replay")
 		if err != nil {

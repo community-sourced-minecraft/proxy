@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"log"
+	"os"
 
 	"github.com/Community-Sourced-Minecraft/Gate-Proxy/internal/hosting"
 	"github.com/Community-Sourced-Minecraft/Gate-Proxy/plugins/bossbar"
@@ -13,6 +13,8 @@ import (
 	"github.com/Community-Sourced-Minecraft/Gate-Proxy/plugins/resourcepack"
 	"github.com/Community-Sourced-Minecraft/Gate-Proxy/plugins/tab"
 	"github.com/Community-Sourced-Minecraft/Gate-Proxy/plugins/whitelist"
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 
 	"go.minekube.com/gate/cmd/gate"
 	"go.minekube.com/gate/pkg/edition/java/proxy"
@@ -21,14 +23,20 @@ import (
 type PluginCreator = func(h *hosting.Hosting) (proxy.Plugin, error)
 
 func main() {
+	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
+
+	if os.Getenv("LOG_FORMAT") != "json" {
+		log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
+	}
+
 	h, err := hosting.Init()
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal().Err(err).Msg("Failed to initialize hosting")
 	}
 
 	perms, err := permissions.NewKVPermissions(context.Background(), h)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal().Err(err).Msg("Failed to initialize permissions")
 	}
 
 	var plugins = []PluginCreator{
@@ -49,7 +57,7 @@ func main() {
 	for _, create := range plugins {
 		p, err := create(h)
 		if err != nil {
-			log.Fatal(err)
+			log.Fatal().Err(err).Msg("Failed to create plugin")
 		}
 		proxy.Plugins = append(proxy.Plugins, p)
 	}

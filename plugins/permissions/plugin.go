@@ -3,9 +3,10 @@ package permissions
 import (
 	"context"
 	"fmt"
-	"log"
 
 	"github.com/Community-Sourced-Minecraft/Gate-Proxy/lib/util/uuid"
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 	"go.minekube.com/brigodier"
 	"go.minekube.com/common/minecraft/color"
 	"go.minekube.com/common/minecraft/component"
@@ -16,12 +17,14 @@ import (
 type PermissionsPlugin struct {
 	prx         *proxy.Proxy
 	permissions *Permissions
+	l           zerolog.Logger
 }
 
 func NewPlugin(prx *proxy.Proxy, permissions *Permissions) (*PermissionsPlugin, error) {
 	return &PermissionsPlugin{
 		prx:         prx,
 		permissions: permissions,
+		l:           log.With().Str("plugin", "permissions").Logger(),
 	}, nil
 }
 
@@ -161,7 +164,7 @@ func (p *PermissionsPlugin) InfoCommand(_type PermissionListType) brigodier.Comm
 		case PermissionTypeGroup:
 			group, exists := p.permissions.GetGroup(name)
 			if !exists {
-				log.Printf("WARN: Group %s doesn't exist", name)
+				p.l.Warn().Msgf("Group %s doesn't exist", name)
 				return c.SendMessage(&component.Text{
 					// TODO: Change this message
 					S: component.Style{Color: color.Red},

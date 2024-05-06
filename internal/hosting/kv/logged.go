@@ -2,7 +2,9 @@ package kv
 
 import (
 	"context"
-	"log"
+
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 )
 
 var _ Client = &Logged{}
@@ -23,6 +25,7 @@ func (l *Logged) Bucket(ctx context.Context, name string) (Bucket, error) {
 
 	return &LoggedBucket{
 		b: b,
+		l: log.With().Str("bucket", name).Logger(),
 	}, nil
 }
 
@@ -30,6 +33,7 @@ var _ Bucket = &LoggedBucket{}
 
 type LoggedBucket struct {
 	b Bucket
+	l zerolog.Logger
 }
 
 func (b *LoggedBucket) Name() string {
@@ -37,37 +41,64 @@ func (b *LoggedBucket) Name() string {
 }
 
 func (b *LoggedBucket) Get(ctx context.Context, key string) ([]byte, error) {
-	return b.b.Get(ctx, key)
+	l := b.l.With().Str("key", key).Logger()
+
+	v, err := b.b.Get(ctx, key)
+	if err != nil {
+		l.Debug().Err(err).Msg("Get")
+		return nil, err
+	}
+
+	l.Debug().Bytes("data", v).Msg("Get")
+
+	return v, nil
 }
 
 func (b *LoggedBucket) Set(ctx context.Context, key string, value []byte) error {
-	log.Printf("Set %s/%s", b.Name(), key)
-	return b.b.Set(ctx, key, value)
+	l := b.l.With().Str("key", key).Bytes("value", value).Logger()
+
+	if err := b.b.Set(ctx, key, value); err != nil {
+		l.Debug().Err(err).Msg("Set")
+		return err
+	}
+
+	l.Debug().Msg("Set")
+
+	return nil
 }
 
 func (b *LoggedBucket) Delete(ctx context.Context, key string) error {
-	log.Printf("Delete %s/%s", b.Name(), key)
-	return b.b.Delete(ctx, key)
+	l := b.l.With().Str("key", key).Logger()
+
+	if err := b.b.Delete(ctx, key); err != nil {
+		l.Debug().Err(err).Msg("Delete")
+		return err
+	}
+
+	l.Debug().Msg("Delete")
+
+	return nil
 }
 
 func (b *LoggedBucket) WatchAll(ctx context.Context) (Watcher, error) {
 	w, err := b.b.WatchAll(ctx)
 	if err != nil {
-		log.Printf("WatchAll %s: %v", b.Name(), err)
+		b.l.Debug().Err(err).Msg("WatchAll")
 		return nil, err
 	}
 
-	log.Printf("WatchAll %s", b.Name())
+	b.l.Debug().Msg("WatchAll")
 
 	return &LoggedWatcher{
 		w: w,
+		l: b.l,
 	}, nil
 }
 
 func (b *LoggedBucket) Unwatch(w Watcher) {
 	b.b.Unwatch(w)
 
-	log.Printf("Unwatch %s", b.Name())
+	b.l.Debug().Msg("Unwatch")
 }
 
 func (b *LoggedBucket) ListKeys(ctx context.Context) ([]string, error) {
@@ -78,6 +109,7 @@ var _ Watcher = &LoggedWatcher{}
 
 type LoggedWatcher struct {
 	w Watcher
+	l zerolog.Logger
 }
 
 func (w *LoggedWatcher) Changes() <-chan *Value {
@@ -85,7 +117,7 @@ func (w *LoggedWatcher) Changes() <-chan *Value {
 }
 
 func (w *LoggedWatcher) Unwatch() {
-	log.Printf("Unwatch")
-
 	w.w.Unwatch()
+
+	w.l.Debug().Msg("Unwatch")
 }

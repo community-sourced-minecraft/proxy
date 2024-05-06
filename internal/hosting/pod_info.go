@@ -2,8 +2,9 @@ package hosting
 
 import (
 	"fmt"
-	"log"
 	"os"
+
+	"github.com/rs/zerolog/log"
 )
 
 type PodInfo struct {
@@ -20,17 +21,17 @@ func ParsePodInfo() *PodInfo {
 	}
 
 	if info.Network == "" {
-		log.Printf("WARN: CSMC_NETWORK is not set, using default network")
+		log.Warn().Msg("CSMC_NETWORK is not set, using default network")
 		info.Network = "default"
 	}
 
 	if info.PodName == "" {
-		log.Printf("WARN: POD_NAME is not set, using proxy-0")
+		log.Warn().Msg("POD_NAME is not set, using proxy-0")
 		info.PodName = "proxy-0"
 	}
 
 	if info.PodNamespace == "" {
-		log.Printf("WARN: POD_NAMESPACE is not set, using default")
+		log.Warn().Msg("POD_NAMESPACE is not set, using default")
 		info.PodNamespace = "default"
 	}
 
