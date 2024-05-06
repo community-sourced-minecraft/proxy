@@ -103,10 +103,10 @@ func (p *CorePlugin) Init(ctx context.Context) error {
 		}
 
 		err = p.h.Messaging().Subscribe(p.h.Info.RPCNetworkSubject(), func(msg messaging.Message) {
-			log.Printf("Received raw request on transfers queue: %s", string(msg.Data))
+			log.Printf("Received raw request on transfers queue: %s", string(msg.Data()))
 
 			payload := &rpc.Request{}
-			if err := json.Unmarshal(msg.Data, payload); err != nil {
+			if err := json.Unmarshal(msg.Data(), payload); err != nil {
 				log.Printf("Failed to unmarshal payload: %v", err)
 				return
 			}
@@ -152,7 +152,7 @@ func (p *CorePlugin) Init(ctx context.Context) error {
 				return
 			}
 
-			c, err := player.CreateConnectionRequest(newServer).Connect(msg.Context)
+			c, err := player.CreateConnectionRequest(newServer).Connect(msg.Context())
 			if err != nil {
 				log.Printf("Failed to connect player %s to server %s: %v", req.UUID, req.Destination, err)
 

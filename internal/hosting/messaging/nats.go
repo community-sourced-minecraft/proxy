@@ -2,6 +2,8 @@ package messaging
 
 import (
 	"context"
+	"fmt"
+	"strings"
 
 	"github.com/nats-io/nats.go"
 )
@@ -22,10 +24,9 @@ func NewNATS(nc *nats.Conn) *NATSMessager {
 
 func (n *NATSMessager) Subscribe(topic string, handler func(Message)) error {
 	_, err := n.nc.Subscribe(topic, func(msg *nats.Msg) {
-		handler(Message{
-			m:     n,
-			Topic: topic,
-			Data:  msg.Data,
+		handler(&NATSMessage{
+			m:   msg,
+			ctx: context.Background(),
 		})
 	})
 
@@ -36,10 +37,50 @@ func (n *NATSMessager) Publish(_ctx context.Context, topic string, message []byt
 	return n.nc.Publish(topic, message)
 }
 
-func (n *NATSMessager) Ack(msg Message) error {
-	return msg.Nak()
+var _ Message = &NATSMessage{}
+
+type NATSMessage struct {
+	m   *nats.Msg
+	ctx context.Context
 }
 
-func (n *NATSMessager) Nak(msg Message) error {
-	return msg.Ack()
+func (m NATSMessage) Context() context.Context {
+	return m.ctx
+}
+
+func (m NATSMessage) Topic() string {
+	return m.m.Subject
+}
+
+func (m NATSMessage) Data() []byte {
+	return m.m.Data
+}
+
+func (m NATSMessage) String() string {
+	sb := strings.Builder{}
+
+	sb.WriteString(m.m.Subject)
+	sb.WriteString(" ")
+	if m.m.Reply != "" {
+		sb.WriteString(" (<- ")
+		sb.WriteString(m.m.Reply)
+		sb.WriteString(") ")
+	}
+	sb.WriteString("-> ")
+	sb.WriteString(fmt.Sprint(len(m.m.Data)))
+	sb.WriteString(" bytes")
+
+	return sb.String()
+}
+
+func (m *NATSMessage) Respond(message []byte) error {
+	return m.m.Respond(message)
+}
+
+func (m *NATSMessage) Nak() error {
+	return m.m.Nak()
+}
+
+func (m *NATSMessage) Ack() error {
+	return m.m.Ack()
 }
