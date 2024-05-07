@@ -24,9 +24,15 @@ type PluginCreator = func(h *hosting.Hosting) (proxy.Plugin, error)
 
 func main() {
 	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
-
 	if os.Getenv("LOG_FORMAT") != "json" {
 		log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
+	}
+	if os.Getenv("LOG_LEVEL") != "" {
+		lvl, err := zerolog.ParseLevel(os.Getenv("LOG_LEVEL"))
+		if err != nil {
+			log.Fatal().Err(err).Msg("Failed to parse log level")
+		}
+		log.Logger = log.Level(lvl)
 	}
 
 	h, err := hosting.Init()
