@@ -4,9 +4,9 @@
 
 ### Prerequisites
 
--   [Docker](https://www.docker.com/)
--   [Docker Compose](https://docs.docker.com/compose/)
--   [Go](https://golang.org/)
+- [Docker](https://www.docker.com/)
+- [Docker Compose](https://docs.docker.com/compose/)
+- [Go](https://golang.org/)
 
 ### Running
 
@@ -18,3 +18,12 @@ cp config.dev.yml config.yml
 
 go run .
 ```
+
+## Thanks
+
+<div style="display: flex; flex-direction: column; width: fit-content; align-items: center">
+  <a href="https://qaze.app">
+    <img src="./.misc/qaze.svg" alt="Qaze - The NATS GUI" width="200"/>
+  </a>
+  <p>Qaze - providing us with <b>the</b> GUI for NATS</p>
+</div>
