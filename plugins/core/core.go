@@ -97,6 +97,8 @@ func (p *CorePlugin) Init(ctx context.Context) error {
 		p.h.NetworkEventBus().Register(rpc.TypeTransferPlayer, func(msg messaging.Message, req *rpc.Request) error {
 			return handleTransferPlayerRequest(msg, req)
 		})
+
+		p.h.PodEventBus().Register(rpc.TypeUpgradeInstance, p.upgradeInstance)
 	}
 
 	p.prx.Command().Register(brigodier.Literal("ping").
@@ -261,4 +263,13 @@ func (p *CorePlugin) handleTransferPlayerRequest() (hosting.EventHandler, error)
 
 		return nil
 	}, nil
+}
+
+func (p *CorePlugin) upgradeInstance(msg messaging.Message, req *rpc.Request) error {
+	p.prx.Shutdown(&Text{
+		Content: "Proxy is upgrading...",
+		S:       Style{Color: color.Red},
+	})
+
+	return nil
 }
