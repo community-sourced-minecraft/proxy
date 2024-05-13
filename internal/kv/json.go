@@ -7,7 +7,7 @@ import (
 	"slices"
 	"sync"
 
-	"github.com/Community-Sourced-Minecraft/Gate-Proxy/internal/hosting/storage"
+	"github.com/Community-Sourced-Minecraft/Gate-Proxy/internal/storage"
 )
 
 var _ Client = &JSONClient{}

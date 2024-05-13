@@ -42,6 +42,10 @@ func (p PodInfo) RPCNetworkSubject() string {
 	return fmt.Sprintf("csmc.%s.%s", p.PodNamespace, p.Network)
 }
 
+func (p PodInfo) RPCPodSubject() string {
+	return fmt.Sprintf("csmc.%s.%s.%s", p.PodNamespace, p.Network, p.PodName)
+}
+
 func (p PodInfo) DebugString() string {
 	return fmt.Sprintf("PodInfo{Network: %s, PodName: %s, PodNamespace: %s}", p.Network, p.PodName, p.PodNamespace)
 }

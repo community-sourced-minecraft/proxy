@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/Community-Sourced-Minecraft/Gate-Proxy/internal/hosting/kv"
+	"github.com/Community-Sourced-Minecraft/Gate-Proxy/internal/kv"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/pkg/errors"

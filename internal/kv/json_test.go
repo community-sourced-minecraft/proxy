@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/Community-Sourced-Minecraft/Gate-Proxy/internal/hosting/storage"
+	"github.com/Community-Sourced-Minecraft/Gate-Proxy/internal/storage"
 )
 
 func TestJSONKV(t *testing.T) {
