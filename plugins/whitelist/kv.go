@@ -8,7 +8,7 @@ import (
 	"sync"
 
 	"github.com/Community-Sourced-Minecraft/Gate-Proxy/internal/hosting"
-	"github.com/Community-Sourced-Minecraft/Gate-Proxy/internal/hosting/kv"
+	"github.com/Community-Sourced-Minecraft/Gate-Proxy/internal/kv"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )

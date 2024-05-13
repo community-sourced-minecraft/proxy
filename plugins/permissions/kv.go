@@ -9,7 +9,7 @@ import (
 	"sync"
 
 	"github.com/Community-Sourced-Minecraft/Gate-Proxy/internal/hosting"
-	"github.com/Community-Sourced-Minecraft/Gate-Proxy/internal/hosting/kv"
+	"github.com/Community-Sourced-Minecraft/Gate-Proxy/internal/kv"
 	"github.com/Community-Sourced-Minecraft/Gate-Proxy/lib/util"
 	"github.com/Community-Sourced-Minecraft/Gate-Proxy/lib/util/uuid"
 	"github.com/rs/zerolog"

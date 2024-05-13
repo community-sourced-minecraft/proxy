@@ -5,7 +5,8 @@ import "go.minekube.com/gate/pkg/util/uuid"
 type Type string
 
 const (
-	TypeTransferPlayer Type = "TRANSFER_PLAYER"
+	TypeTransferPlayer  Type = "TRANSFER_PLAYER"
+	TypeUpgradeInstance Type = "UPGRADE_INSTANCE"
 )
 
 type Request struct {

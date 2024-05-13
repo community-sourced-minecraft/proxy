@@ -8,9 +8,9 @@ import (
 	"strings"
 
 	"github.com/Community-Sourced-Minecraft/Gate-Proxy/internal/hosting"
-	"github.com/Community-Sourced-Minecraft/Gate-Proxy/internal/hosting/kv"
-	"github.com/Community-Sourced-Minecraft/Gate-Proxy/internal/hosting/messaging"
 	"github.com/Community-Sourced-Minecraft/Gate-Proxy/internal/hosting/rpc"
+	"github.com/Community-Sourced-Minecraft/Gate-Proxy/internal/kv"
+	"github.com/Community-Sourced-Minecraft/Gate-Proxy/internal/messaging"
 	"github.com/robinbraemer/event"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -89,145 +89,16 @@ func (p *CorePlugin) Init(ctx context.Context) error {
 	}()
 
 	{
-		errorReqRes, err := json.Marshal(&rpc.TransferPlayerResponse{Status: rpc.StatusError})
+		handleTransferPlayerRequest, err := p.handleTransferPlayerRequest()
 		if err != nil {
-			p.l.Error().Err(err).Msg("Failed to marshal error transfer player response")
 			return err
 		}
 
-		errorRes, err := json.Marshal(&rpc.Response{Type: rpc.TypeTransferPlayer, Data: string(errorReqRes)})
-		if err != nil {
-			p.l.Error().Err(err).Msg("Failed to marshal error response")
-			return err
-		}
-
-		err = p.h.Messaging().Subscribe(p.h.Info.RPCNetworkSubject(), func(msg messaging.Message) {
-			l := p.l.With().Bytes("data", msg.Data()).Logger()
-			l.Trace().Msgf("Received raw request")
-
-			payload := &rpc.Request{}
-			if err := json.Unmarshal(msg.Data(), payload); err != nil {
-				l.Error().Err(err).Msg("Failed to unmarshal request")
-				return
-			}
-
-			if payload.Type != rpc.TypeTransferPlayer {
-				l.Trace().Msgf("Ignoring request of type %s", payload.Type)
-
-				if err := msg.Nak(); err != nil {
-					l.Error().Err(err).Msg("Failed to nack request")
-				}
-
-				return
-			}
-
-			req := &rpc.TransferPlayerRequest{}
-			if err := json.Unmarshal([]byte(payload.Data), req); err != nil {
-				l.Error().Err(err).Msg("Failed to unmarshal transfer player request")
-
-				if err := msg.Nak(); err != nil {
-					l.Error().Err(err).Msg("Failed to nack transfer player request")
-				}
-
-				return
-			}
-
-			l = p.l.With().Str("player", req.UUID.String()).Str("destination", req.Destination).Logger()
-			l.Trace().Msgf("Transfer player request")
-
-			player := p.prx.Player(req.UUID)
-			if player == nil {
-				l.Trace().Msg("Player not found on this proxy")
-
-				if err := msg.Nak(); err != nil {
-					l.Error().Err(err).Msg("Failed to nack transfer player request")
-				}
-
-				return
-			}
-
-			var newServer proxy.RegisteredServer
-			for _, s := range p.prx.Servers() {
-				sName := s.ServerInfo().Name()
-
-				if sName == req.Destination {
-					newServer = s
-					break
-				}
-
-				if strings.HasPrefix(sName, req.Destination+"-") {
-					newServer = s
-					break
-				}
-			}
-			if newServer == nil {
-				p.l.Err(err).Msgf("Server %s not found", req.Destination)
-				msg.Nak()
-				return
-			}
-
-			c, err := player.CreateConnectionRequest(newServer).Connect(msg.Context())
-			if err != nil {
-				p.l.Error().Err(err).Msgf("Failed to connect player %s to server %s", req.UUID, req.Destination)
-
-				if err := msg.Respond(errorRes); err != nil {
-					p.l.Error().Err(err).Msg("Failed to respond to transfer player request: %v")
-				}
-
-				return
-			}
-
-			if c.Status() == proxy.AlreadyConnectedConnectionStatus {
-				p.l.Info().Msgf("Player %s already connected to server %s", req.UUID, req.Destination)
-
-				if err := msg.Ack(); err != nil {
-					p.l.Error().Err(err).Msg("Failed to ack transfer player request")
-				}
-
-				return
-			} else if c.Status() != proxy.SuccessConnectionStatus {
-				p.l.Printf("Failed to connect player %s to server %s: %v: %v", req.UUID, req.Destination, c.Status(), c.Reason())
-
-				if err := msg.Respond(errorRes); err != nil {
-					p.l.Error().Err(err).Msg("Failed to respond to transfer player request: %v")
-				}
-
-				return
-			}
-
-			reqRes, err := json.Marshal(&rpc.TransferPlayerResponse{Status: rpc.StatusOk})
-			if err != nil {
-				p.l.Error().Err(err).Msg("Failed to marshal transfer player response")
-
-				if err := msg.Respond(errorRes); err != nil {
-					p.l.Error().Err(err).Msg("Failed to respond to transfer player request: %v")
-				}
-
-				return
-			}
-
-			res, err := json.Marshal(&rpc.Response{Type: payload.Type, Data: string(reqRes)})
-			if err != nil {
-				p.l.Error().Err(err).Msg("Failed to marshal response")
-
-				if err := msg.Respond(errorRes); err != nil {
-					p.l.Error().Err(err).Msg("Failed to respond to transfer player request: %v")
-				}
-
-				return
-			}
-
-			if err := msg.Respond(res); err != nil {
-				l.Error().Err(err).Msg("Failed to respond to transfer player request: %v")
-			}
-
-			l.Info().Msgf("Player %s transferred to server %s", req.UUID, req.Destination)
+		p.h.NetworkEventBus().Register(rpc.TypeTransferPlayer, func(msg messaging.Message, req *rpc.Request) error {
+			return handleTransferPlayerRequest(msg, req)
 		})
-		if err != nil {
-			p.l.Error().Err(err).Msg("Failed to subscribe to RPC network")
 
-			return err
-		}
+		p.h.PodEventBus().Register(rpc.TypeUpgradeInstance, p.upgradeInstance)
 	}
 
 	p.prx.Command().Register(brigodier.Literal("ping").
@@ -283,4 +154,122 @@ func (p *CorePlugin) onServerSwitch(e *proxy.ServerPostConnectEvent) {
 			&Text{Content: "."},
 		},
 	})
+}
+
+func (p *CorePlugin) handleTransferPlayerRequest() (hosting.EventHandler, error) {
+	errorReqRes, err := json.Marshal(&rpc.TransferPlayerResponse{Status: rpc.StatusError})
+	if err != nil {
+		p.l.Error().Err(err).Msg("Failed to marshal error transfer player response")
+		return nil, err
+	}
+
+	errorRes, err := json.Marshal(&rpc.Response{Type: rpc.TypeTransferPlayer, Data: string(errorReqRes)})
+	if err != nil {
+		p.l.Error().Err(err).Msg("Failed to marshal error response")
+		return nil, err
+	}
+
+	return func(msg messaging.Message, payload *rpc.Request) error {
+		req := &rpc.TransferPlayerRequest{}
+		if err := json.Unmarshal([]byte(payload.Data), req); err != nil {
+			p.l.Error().Err(err).Msg("Failed to unmarshal transfer player request")
+
+			return err
+		}
+
+		l := p.l.With().Str("player", req.UUID.String()).Str("destination", req.Destination).Logger()
+
+		player := p.prx.Player(req.UUID)
+		if player == nil {
+			l.Trace().Msg("Player not found on this proxy")
+			return fmt.Errorf("player %s not found on this proxy", req.UUID)
+		}
+
+		var newServer proxy.RegisteredServer
+		for _, s := range p.prx.Servers() {
+			sName := s.ServerInfo().Name()
+
+			if sName == req.Destination {
+				newServer = s
+				break
+			}
+
+			if strings.HasPrefix(sName, req.Destination+"-") {
+				newServer = s
+				break
+			}
+		}
+		if newServer == nil {
+			p.l.Error().Msgf("Server %s not found", req.Destination)
+			return fmt.Errorf("server %s not found", req.Destination)
+		}
+
+		c, err := player.CreateConnectionRequest(newServer).Connect(msg.Context())
+		if err != nil {
+			p.l.Error().Err(err).Msgf("Failed to connect player %s to server %s", req.UUID, req.Destination)
+
+			if err := msg.Respond(errorRes); err != nil {
+				p.l.Error().Err(err).Msg("Failed to respond to transfer player request: %v")
+			}
+
+			return err
+		}
+
+		if c.Status() == proxy.AlreadyConnectedConnectionStatus {
+			p.l.Info().Msgf("Player %s already connected to server %s", req.UUID, req.Destination)
+
+			if err := msg.Ack(); err != nil {
+				p.l.Error().Err(err).Msg("Failed to ack transfer player request")
+			}
+
+			return nil
+		} else if c.Status() != proxy.SuccessConnectionStatus {
+			p.l.Printf("Failed to connect player %s to server %s: %v: %v", req.UUID, req.Destination, c.Status(), c.Reason())
+
+			if err := msg.Respond(errorRes); err != nil {
+				p.l.Error().Err(err).Msg("Failed to respond to transfer player request: %v")
+			}
+
+			return nil
+		}
+
+		reqRes, err := json.Marshal(&rpc.TransferPlayerResponse{Status: rpc.StatusOk})
+		if err != nil {
+			p.l.Error().Err(err).Msg("Failed to marshal transfer player response")
+
+			if err := msg.Respond(errorRes); err != nil {
+				p.l.Error().Err(err).Msg("Failed to respond to transfer player request: %v")
+			}
+
+			return nil
+		}
+
+		res, err := json.Marshal(&rpc.Response{Type: payload.Type, Data: string(reqRes)})
+		if err != nil {
+			p.l.Error().Err(err).Msg("Failed to marshal response")
+
+			if err := msg.Respond(errorRes); err != nil {
+				p.l.Error().Err(err).Msg("Failed to respond to transfer player request: %v")
+			}
+
+			return nil
+		}
+
+		if err := msg.Respond(res); err != nil {
+			l.Error().Err(err).Msg("Failed to respond to transfer player request: %v")
+		}
+
+		l.Info().Msgf("Player %s transferred to server %s", req.UUID, req.Destination)
+
+		return nil
+	}, nil
+}
+
+func (p *CorePlugin) upgradeInstance(msg messaging.Message, req *rpc.Request) error {
+	p.prx.Shutdown(&Text{
+		Content: "Proxy is upgrading...",
+		S:       Style{Color: color.Red},
+	})
+
+	return nil
 }

@@ -9,7 +9,7 @@ import (
 	"net"
 	"time"
 
-	"github.com/Community-Sourced-Minecraft/Gate-Proxy/internal/hosting/kv"
+	"github.com/Community-Sourced-Minecraft/Gate-Proxy/internal/kv"
 	"github.com/rs/zerolog/log"
 	"go.minekube.com/gate/pkg/edition/java/proxy"
 )
